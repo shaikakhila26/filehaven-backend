@@ -7,7 +7,9 @@ const { Pool } = pkg;
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // Supabase requires SSL in most plans
+  ssl: { 
+    require: true,
+    rejectUnauthorized: false } // Supabase requires SSL in most plans
   
 });
 
