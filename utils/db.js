@@ -9,6 +9,11 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false } // Supabase requires SSL in most plans
 });
 
+console.log('DATABASE_URL:', process.env.DATABASE_URL);
+console.log('PGHOST:', process.env.PGHOST);
+console.log('DB_HOST:', process.env.DB_HOST);
+
+
 export const connectDB = async () => {
   console.log('DATABASE_URL being used:', process.env.DATABASE_URL);
 
