@@ -569,6 +569,28 @@ router.get('/search/folders', authMiddleware, async (req, res) => {
   res.json({ results: data });
 });
 
+// files.js
+router.get('/storage', authMiddleware, async (req, res) => {
+  try {
+    const user = req.user;
+
+    const { data: files, error } = await supabase
+      .from('files')
+      .select('size_bytes')
+      .eq('owner_id', user.id)
+      .eq('is_deleted', false);
+
+    if (error) throw error;
+
+    const used = files.reduce((acc, f) => acc + f.size_bytes, 0);
+    const total = 1024 * 1024 * 500; // 500MB per user (example quota)
+
+    res.json({ used, total });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to calculate storage' });
+  }
+});
 
 
 
