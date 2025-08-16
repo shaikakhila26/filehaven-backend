@@ -3,8 +3,7 @@ dotenv.config();
 
 import pkg from 'pg';
 const { Pool } = pkg;
-import dns from 'dns';
-dns.setDefaultResultOrder('ipv4first'); // Force IPv4
+
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
