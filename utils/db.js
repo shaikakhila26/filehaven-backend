@@ -10,6 +10,8 @@ const pool = new Pool({
 });
 
 export const connectDB = async () => {
+  console.log('DATABASE_URL being used:', process.env.DATABASE_URL);
+
   try {
     await pool.connect();
     console.log('✅ Connected to Supabase PostgreSQL');
