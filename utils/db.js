@@ -31,3 +31,6 @@ export const connectDB = async () => {
 };
 
 export default pool;
+
+
+
