@@ -3,11 +3,13 @@ dotenv.config();
 
 import pkg from 'pg';
 const { Pool } = pkg;
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first'); // Force IPv4
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } ,// Supabase requires SSL in most plans
-  family: 4, // Use IPv4
+  ssl: { rejectUnauthorized: false } // Supabase requires SSL in most plans
+  
 });
 
 console.log('DATABASE_URL:', process.env.DATABASE_URL);
