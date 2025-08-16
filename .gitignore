@@ -11,8 +11,7 @@ yarn-error.log*
 coverage/
 # Local test data/folders
 /tests/
-# Supabase credentials/client
-supabaseClient.js
+
 # Mac/Linux/Windows system files
 .DS_Store
 Thumbs.db
