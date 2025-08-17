@@ -593,6 +593,50 @@ router.get('/storage', authMiddleware, async (req, res) => {
 });
 
 
+// Add to your files.js or a suitable router file
+
+router.get('/shared-with-me', authMiddleware, async (req, res) => {
+  const user = req.user;
+
+  // Find all files where this user has a row in permissions table
+  const { data: permissions, error: permissionsError } = await supabase
+    .from('permissions')
+    .select('file_id, shared_with, permission_type, created_at')
+    .eq('shared_with', user.id);
+
+  if (permissionsError) {
+    return res.status(500).json({ error: permissionsError.message });
+  }
+
+  const fileIds = permissions.map(p => p.file_id);
+  if (!fileIds.length) return res.json([]);
+
+  // Fetch corresponding files and their owners
+  const { data: files, error: filesError } = await supabase
+    .from('files')
+    .select('id, name, owner_id, created_at')
+    .in('id', fileIds)
+    .eq('is_deleted', false);
+
+  if (filesError) {
+    return res.status(500).json({ error: filesError.message });
+  }
+
+  // Optionally, fetch owner info (assuming you have a 'users' table)
+  // You can join or fetch separately based on your schema.
+
+  // Merge info to what frontend expects
+  // To include shared_by, you'd need to resolve owner_id to email/name if needed.
+  const results = files.map(f => ({
+    name: f.name,
+    shared_by: f.owner_id,
+    shared_at: permissions.find(p => p.file_id === f.id)?.created_at
+  }));
+
+  return res.json(results);
+});
+
+
 
 
 
