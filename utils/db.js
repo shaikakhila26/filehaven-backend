@@ -13,13 +13,11 @@ const pool = new Pool({
   
 });
 
-console.log('DATABASE_URL:', process.env.DATABASE_URL);
-console.log('PGHOST:', process.env.PGHOST);
-console.log('DB_HOST:', process.env.DB_HOST);
+
 
 
 export const connectDB = async () => {
-  console.log('DATABASE_URL being used:', process.env.DATABASE_URL);
+ 
 
   try {
     await pool.connect();

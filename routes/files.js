@@ -638,6 +638,199 @@ router.get('/shared-with-me', authMiddleware, async (req, res) => {
 
 
 
+// Example: In your files.js or recent.js router
+router.get('/recent', authMiddleware, async (req, res) => {
+  const user = req.user;
+
+  // Get recent files for the user, ordered by updated/created date
+  const { data, error } = await supabase
+    .from('files')
+    .select('*')
+    .eq('owner_id', user.id)
+    .eq('is_deleted', false)
+    .order('updated_at', { ascending: false })
+    .limit(20);
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json(data); // Respond with array of recent files
+});
+
+// In files.js or starred.js router
+router.get('/starred', authMiddleware, async (req, res) => {
+  const user = req.user;
+
+  // Get starred files for the user
+  const { data, error } = await supabase
+    .from('files')
+    .select('*')
+    .eq('owner_id', user.id)
+    .eq('is_deleted', false)
+    .eq('is_starred', true)
+    .order('updated_at', { ascending: false });
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json(data);
+});
+
+
+
+// In your files.js (or new trash.js) router
+router.get('/trash', authMiddleware, async (req, res) => {
+  const user = req.user;
+
+  // Get soft-deleted files and folders for this user (assumes `is_deleted: true`)
+  const { data: files, error: filesError } = await supabase
+    .from('files')
+    .select('*')
+    .eq('owner_id', user.id)
+    .eq('is_deleted', true);
+
+  const { data: folders, error: foldersError } = await supabase
+    .from('folders')
+    .select('*')
+    .eq('owner_id', user.id)
+    .eq('is_deleted', true);
+
+  if (filesError || foldersError) {
+    const msg = filesError?.message || foldersError?.message || 'Error fetching trash';
+    return res.status(500).json({ error: msg });
+  }
+
+  res.json({ files, folders });
+});
+
+
+
+router.get("/user/profile", authMiddleware, async (req, res) => {
+  try {
+    const user = req.user
+
+    // Get user storage info
+    const { data: files, error: filesError } = await supabase
+      .from("files")
+      .select("size_bytes")
+      .eq("owner_id", user.id)
+      .eq("is_deleted", false)
+
+    if (filesError) throw filesError
+
+    const usedStorage = files.reduce((acc, f) => acc + f.size_bytes, 0)
+    const totalStorage = 1024 * 1024 * 500 // 500MB per user
+
+    // Get file counts
+    const { count: fileCount, error: fileCountError } = await supabase
+      .from("files")
+      .select("*", { count: "exact", head: true })
+      .eq("owner_id", user.id)
+      .eq("is_deleted", false)
+
+    if (fileCountError) throw fileCountError
+
+    // Get folder counts
+    const { count: folderCount, error: folderCountError } = await supabase
+      .from("folders")
+      .select("*", { count: "exact", head: true })
+      .eq("owner_id", user.id)
+      .eq("is_deleted", false)
+
+    if (folderCountError) throw folderCountError
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.email.split("@")[0],
+        avatar_url: `https://ui-avatars.com/api/?name=${encodeURIComponent(user.email)}&background=4285f4&color=fff`,
+      },
+      storage: {
+        used: usedStorage,
+        total: totalStorage,
+        percentage: Math.round((usedStorage / totalStorage) * 100),
+      },
+      stats: {
+        filesCount: fileCount || 0,
+        foldersCount: folderCount || 0,
+      },
+      joinedAt: new Date().toISOString(),
+    })
+  } catch (err) {
+    console.error("Profile fetch error:", err)
+    res.status(500).json({ error: "Failed to fetch user profile" })
+  }
+});
+
+router.get("/notifications", authMiddleware, async (req, res) => {
+  try {
+    const user = req.user
+    const notifications = []
+
+    // Get recent file shares
+    const { data: sharedFiles, error: sharedError } = await supabase
+      .from("permissions")
+      .select(`
+        file_id,
+        permission_type,
+        created_at,
+        files!inner(name, owner_id)
+      `)
+      .eq("shared_with", user.id)
+      .order("created_at", { ascending: false })
+      .limit(5)
+
+    if (!sharedError && sharedFiles) {
+      sharedFiles.forEach((share) => {
+        notifications.push({
+          id: `share_${share.file_id}`,
+          type: "file_shared",
+          title: "File shared with you",
+          message: `${share.files.name} was shared with you`,
+          timestamp: share.created_at,
+          read: false,
+          icon: "share",
+        })
+      })
+    }
+
+    // Get recent uploads (last 24 hours)
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const { data: recentFiles, error: recentError } = await supabase
+      .from("files")
+      .select("name, created_at")
+      .eq("owner_id", user.id)
+      .eq("is_deleted", false)
+      .gte("created_at", yesterday)
+      .order("created_at", { ascending: false })
+      .limit(3)
+
+    if (!recentError && recentFiles) {
+      recentFiles.forEach((file) => {
+        notifications.push({
+          id: `upload_${file.name}_${file.created_at}`,
+          type: "file_uploaded",
+          title: "File uploaded successfully",
+          message: `${file.name} was uploaded to your drive`,
+          timestamp: file.created_at,
+          read: false,
+          icon: "upload",
+        })
+      })
+    }
+
+    notifications.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+
+    res.json({
+      notifications: notifications.slice(0, 10),
+      unreadCount: notifications.filter((n) => !n.read).length,
+    })
+  } catch (err) {
+    console.error("Notifications fetch error:", err)
+    res.status(500).json({ error: "Failed to fetch notifications" })
+  }
+});
+
+
 
 
 
