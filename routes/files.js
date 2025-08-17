@@ -60,6 +60,17 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
 
   if (dbError) throw dbError;
 
+       // 2️⃣ Insert notification
+    await supabase.from("notifications").insert({
+      user_id: user.id,
+      type: "file_uploaded",
+      title: "File uploaded successfully",
+      message: `${file.originalname} was uploaded to your drive`,
+      icon: "upload",
+      timestamp: new Date().toISOString(),
+      read: false,
+    });
+
 
     return res.json({ success: true, message: 'File uploaded successfully.' });
   } catch (err) {
@@ -80,6 +91,17 @@ router.post('/folders', authMiddleware, async (req, res) => {
       owner_id: user.id,
       parent_id: parent_id || null,
     }]);
+
+    await supabase.from("notifications").insert({
+  user_id: user.id,
+  type: "folder_created",
+  title: "Folder created",
+  message: `Folder "${name}" was created`,
+  icon: "folder",
+  timestamp: new Date().toISOString(),
+  read: false,
+});
+
 
   if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true, message: 'Folder created.' });
@@ -106,6 +128,16 @@ router.patch('/folders/:id/rename', authMiddleware, async (req, res) => {
     .from('folders')
     .update({ name: newName, updated_at: new Date().toISOString() })
     .eq('id', id);
+
+    await supabase.from("notifications").insert({
+  user_id: user.id,
+  type: "folder_renamed",
+  title: "Folder renamed",
+  message: `Folder was renamed to "${newName}"`,
+  icon: "folder",
+  timestamp: new Date().toISOString(),
+  read: false,
+});
 
   res.json({ success: true, message: 'Folder renamed.' });
 });
@@ -325,6 +357,7 @@ router.post('/files/:id/share-link', authMiddleware, async (req, res) => {
     .select('owner_id')
     .eq('id', id).single();
   if (fileErr || !file || file.owner_id !== user.id)
+    
     return res.status(403).json({ error: 'Not allowed' });
 
   // 2. Generate token, insert
@@ -339,6 +372,17 @@ router.post('/files/:id/share-link', authMiddleware, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
 
   const shareUrl = `${process.env.SHARE_BASE_URL || 'http://localhost:3000'}/s/${token}`;
+
+  // 3️⃣ Insert notification
+    await supabase.from("notifications").insert({
+      
+      type: "file_shared",
+      title: "File shared ",
+      message: `${file.originalname} was shared `,
+      icon: "share",
+      timestamp: new Date().toISOString(),
+      read: false,
+    });
   res.json({ url: shareUrl });
 });
 
@@ -528,46 +572,172 @@ router.delete('/files/:id/permissions/:sharedWith', authMiddleware, async (req, 
  * GET /search/files?query=term&page=1&pageSize=20
  */
 router.get('/search/files', authMiddleware, async (req, res) => {
-  const user = req.user;
-  const { query, page = 1, pageSize = 20 } = req.query;
-  if (!query) return res.status(400).json({ error: "Query is required" });
+  try {
+    const user = req.user;
+    const {
+      query = '',
+      page = '1',
+      pageSize = '20',
+      fileType = '',         // "document" | "image" | "video" | "audio" | "archive"
+      owner = '',            // "" | "me" | "shared"
+      location = '',         // "" | "mydrive" | "shared" | "recent" | "trash"
+      inTrash = 'false',
+      starred = 'false',
+      encrypted = 'false',
+      sortBy = 'name',       // "name" | "size_bytes" | "created_at"
+      sortOrder = 'asc',     // "asc" | "desc"
+    } = req.query;
 
-  // Pagination math
-  const limit = parseInt(pageSize, 10);
-  const offset = (parseInt(page, 10) - 1) * limit;
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(pageSize, 10) || 20, 1), 100);
+    const offset = (pageNum - 1) * limit;
+    const ascending = (sortOrder || 'asc').toLowerCase() !== 'desc';
 
-  // Raw Postgres query for full-text search with pagination
-  const { data, error } = await supabase.rpc('files_search', {
-    q: query,
-    ownerid: user.id,
-    lim: limit,
-    offs: offset
-  });
+    // Resolve list base (owned vs shared)
+    let fileIdsFilter = null;
+    if (owner === 'shared' || location === 'shared') {
+      const { data: perms, error: permsError } = await supabase
+        .from('permissions')
+        .select('file_id')
+        .eq('shared_with', user.id);
 
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ results: data });
+      if (permsError) throw permsError;
+      const ids = (perms || []).map(p => p.file_id);
+      fileIdsFilter = ids.length ? ids : ['00000000-0000-0000-0000-000000000000']; // empty guard
+    }
+
+    let q = supabase
+      .from('files')
+      .select('id, name, size_bytes, mime_type, created_at, updated_at, owner_id, folder_id, is_deleted, is_starred', { count: 'exact' });
+
+    // Scope: owned or shared
+    if (fileIdsFilter) {
+      q = q.in('id', fileIdsFilter);
+    } else {
+      q = q.eq('owner_id', user.id);
+    }
+
+    // Location / trash
+    const inTrashBool = String(inTrash) === 'true' || location === 'trash';
+    if (inTrashBool) q = q.eq('is_deleted', true);
+    else q = q.eq('is_deleted', false);
+
+    // Starred
+    if (String(starred) === 'true') q = q.eq('is_starred', true);
+
+    // Encrypted (if column exists in your schema; if not, remove this filter)
+    if (String(encrypted) === 'true') q = q.eq('is_encrypted', true);
+
+    // File type -> mime filters
+    if (fileType) {
+      const t = fileType.toLowerCase();
+      if (t === 'image') q = q.ilike('mime_type', 'image/%');
+      else if (t === 'video') q = q.ilike('mime_type', 'video/%');
+      else if (t === 'audio') q = q.ilike('mime_type', 'audio/%');
+      else if (t === 'archive') q = q.or('mime_type.ilike.%zip%,mime_type.ilike.%rar%,mime_type.ilike.%7z%,mime_type.ilike.%tar%');
+      else if (t === 'document') {
+        q = q.or([
+          "mime_type.ilike.%pdf%",
+          "mime_type.ilike.%msword%",
+          "mime_type.ilike.%officedocument%",
+          "mime_type.ilike.%text%"
+        ].join(','));
+      }
+    }
+
+    // Basic name search
+    if (query && query.trim().length) {
+      const term = `%${query.trim()}%`;
+      q = q.ilike('name', term);
+    }
+
+    // Sorting
+    const sortField = ['name', 'size_bytes', 'created_at'].includes(sortBy) ? sortBy : 'name';
+    q = q.order(sortField, { ascending });
+
+    // Pagination
+    q = q.range(offset, offset + limit - 1);
+
+    const { data, error, count } = await q;
+    if (error) throw error;
+
+    res.json({
+      results: data || [],
+      page: pageNum,
+      pageSize: limit,
+      total: count ?? 0,
+      hasMore: count ? offset + (data?.length || 0) < count : false
+    });
+  } catch (err) {
+    console.error('Search files error:', err);
+    res.status(500).json({ error: 'Search files failed' });
+  }
 });
 
-
-// GET /search/folders?query=term&page=1&pageSize=20
+// ---------- SEARCH: FOLDERS ----------
 router.get('/search/folders', authMiddleware, async (req, res) => {
-  const user = req.user;
-  const { query, page = 1, pageSize = 20 } = req.query;
-  if (!query) return res.status(400).json({ error: "Query is required" });
+  try {
+    const user = req.user;
+    const {
+      query = '',
+      page = '1',
+      pageSize = '20',
+      owner = '',
+      location = '',
+      inTrash = 'false',
+      sortBy = 'name',     // "name" | "created_at"
+      sortOrder = 'asc',
+    } = req.query;
 
-  const limit = parseInt(pageSize, 10);
-  const offset = (parseInt(page, 10) - 1) * limit;
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(pageSize, 10) || 20, 1), 100);
+    const offset = (pageNum - 1) * limit;
+    const ascending = (sortOrder || 'asc').toLowerCase() !== 'desc';
 
-  const { data, error } = await supabase.rpc('folders_search', {
-    q: query,
-    ownerid: user.id,
-    lim: limit,
-    offs: offset
-  });
+    // "Shared" folders typically require a share model; if you don't share folders,
+    // keep it to owned folders only, or implement a similar permission model.
+    let q = supabase
+      .from('folders')
+      .select('id, name, parent_id, owner_id, created_at, updated_at, is_deleted', { count: 'exact' });
 
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ results: data });
+    // Scope: owned only (common case)
+    q = q.eq('owner_id', user.id);
+
+    // Trash
+    const inTrashBool = String(inTrash) === 'true' || location === 'trash';
+    if (inTrashBool) q = q.eq('is_deleted', true);
+    else q = q.eq('is_deleted', false);
+
+    // Name search
+    if (query && query.trim().length) {
+      const term = `%${query.trim()}%`;
+      q = q.ilike('name', term);
+    }
+
+    // Sorting
+    const sortField = ['name', 'created_at'].includes(sortBy) ? sortBy : 'name';
+    q = q.order(sortField, { ascending });
+
+    // Pagination
+    q = q.range(offset, offset + limit - 1);
+
+    const { data, error, count } = await q;
+    if (error) throw error;
+
+    res.json({
+      results: data || [],
+      page: pageNum,
+      pageSize: limit,
+      total: count ?? 0,
+      hasMore: count ? offset + (data?.length || 0) < count : false
+    });
+  } catch (err) {
+    console.error('Search folders error:', err);
+    res.status(500).json({ error: 'Search folders failed' });
+  }
 });
+
+// ...keep the rest of your routes below...
 
 // files.js
 router.get('/storage', authMiddleware, async (req, res) => {
@@ -763,71 +933,79 @@ router.get("/user/profile", authMiddleware, async (req, res) => {
 
 router.get("/notifications", authMiddleware, async (req, res) => {
   try {
-    const user = req.user
-    const notifications = []
+    const user = req.user;
 
-    // Get recent file shares
-    const { data: sharedFiles, error: sharedError } = await supabase
-      .from("permissions")
-      .select(`
-        file_id,
-        permission_type,
-        created_at,
-        files!inner(name, owner_id)
-      `)
-      .eq("shared_with", user.id)
-      .order("created_at", { ascending: false })
-      .limit(5)
+    const { data: notifications, error } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("timestamp", { ascending: false })
+      .limit(10);
 
-    if (!sharedError && sharedFiles) {
-      sharedFiles.forEach((share) => {
-        notifications.push({
-          id: `share_${share.file_id}`,
-          type: "file_shared",
-          title: "File shared with you",
-          message: `${share.files.name} was shared with you`,
-          timestamp: share.created_at,
-          read: false,
-          icon: "share",
-        })
-      })
-    }
-
-    // Get recent uploads (last 24 hours)
-    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
-    const { data: recentFiles, error: recentError } = await supabase
-      .from("files")
-      .select("name, created_at")
-      .eq("owner_id", user.id)
-      .eq("is_deleted", false)
-      .gte("created_at", yesterday)
-      .order("created_at", { ascending: false })
-      .limit(3)
-
-    if (!recentError && recentFiles) {
-      recentFiles.forEach((file) => {
-        notifications.push({
-          id: `upload_${file.name}_${file.created_at}`,
-          type: "file_uploaded",
-          title: "File uploaded successfully",
-          message: `${file.name} was uploaded to your drive`,
-          timestamp: file.created_at,
-          read: false,
-          icon: "upload",
-        })
-      })
-    }
-
-    notifications.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+    if (error) throw error;
 
     res.json({
-      notifications: notifications.slice(0, 10),
+      notifications,
       unreadCount: notifications.filter((n) => !n.read).length,
-    })
+    });
   } catch (err) {
-    console.error("Notifications fetch error:", err)
-    res.status(500).json({ error: "Failed to fetch notifications" })
+    console.error("Notifications fetch error:", err);
+    res.status(500).json({ error: "Failed to fetch notifications" });
   }
+});
+
+
+router.patch("/notifications/:id", authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const { read } = req.body;
+
+  try {
+    const { data, error } = await supabase
+      .from("notifications")
+      .update({ read })
+      .eq("id", id)
+      .eq("user_id", req.user.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    res.json(data);
+  } catch (err) {
+    console.error("Mark notification read error:", err);
+    res.status(500).json({ error: "Failed to update notification" });
+  }
+});
+
+// routes/notifications.js
+router.get("/notifications/stream", authMiddleware, async (req, res) => {
+  const token = req.query.token;
+  const user = req.user;
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+
+  const sendNotification = (notification) => {
+    res.write(`data: ${JSON.stringify(notification)}\n\n`);
+  };
+
+  // Listen for changes (simplest: poll every 5 seconds)
+  const interval = setInterval(async () => {
+    const { data: newNotifications } = await supabase
+      .from("notifications")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("read", false)
+      .order("timestamp", { ascending: false })
+      .limit(5);
+
+    newNotifications.forEach(sendNotification);
+  }, 5000);
+
+  req.on("close", () => clearInterval(interval));
 });
 
 
