@@ -11,13 +11,16 @@ import fileRoutes from './routes/files.js';
 dotenv.config();
 const app = express();
 
-const allowedOrigins = process.env.CORS_ORIGIN.split(',').map(origin => origin.trim());
+
+const allowedOrigins = process.env.CORS_ORIGIN.split(",").map(origin =>
+  origin.trim().replace(/\/$/, "") // strip trailing slash
+);
 
 app.use(cors({
   origin: function(origin, callback){
     console.log("Incoming Origin:", origin);
     if(!origin) return callback(null, true); // allow non-browser requests
-    if(allowedOrigins.indexOf(origin) === -1){
+    if(!allowedOrigins.includes(origin.replace(/\/$/, ""))){
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
       return callback(new Error(msg), false);
     }
@@ -25,6 +28,8 @@ app.use(cors({
   },
   credentials: true,
 }));
+
+
 
 app.use(express.json());
 app.use(passport.initialize());
