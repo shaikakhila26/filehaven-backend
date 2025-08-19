@@ -3,7 +3,7 @@ import multer from 'multer';
 import { supabase } from '../supabaseClient.js';
 import { authMiddleware } from '../middleware/authMiddleware.js';
 import crypto from 'crypto';
-
+import { findOrCreateFolder } from '../services/folderService.js'; 
 
 const upload = multer({ storage: multer.memoryStorage() });
 const router = express.Router();
@@ -12,7 +12,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
   try {
     const file = req.file;
     if (!file) return res.status(400).json({ error: 'No file uploaded' });
-    const folder_id = req.body.folder_id || null;
+    let folder_id = req.body.folder_id || null;
 
     // Always get user ID from authenticated token, do NOT accept from client
     const user = req.user;
@@ -20,7 +20,41 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
       return res.status(401).json({ error: 'Invalid or missing user ID in token' });
     }
 
-    // Generate a secure, unique storage path
+    // Start folder id from client (null for root)
+
+    
+
+
+
+    // Process relativePath if present
+
+    const relativePath = req.body.relativePath; // e.g. "sub1/sub2/file.txt"
+
+
+
+    if (relativePath) {
+
+      // Remove file name from relativePath
+
+      const parts = relativePath.split('/').filter(Boolean);
+
+      parts.pop(); // Remove file name, remaining are folders
+
+
+
+      // Recursively find/create intermediate folders
+
+      for (const folderName of parts) {
+
+        folder_id = await findOrCreateFolder(user.id, folderName, folder_id);
+
+      }
+
+    }
+
+
+
+    // Generate storage key for S3/Supabase
     const storageKey = `uploads/${user.id}/${Date.now()}_${file.originalname}`;
 
     // Upload file buffer to Supabase Storage bucket
@@ -343,6 +377,82 @@ router.delete('/folders/:id', authMiddleware, async (req, res) => {
   }
 });
 
+router.delete('/trash/file/:id/permanent', authMiddleware, async (req, res) => {
+  const user = req.user;
+  const { id } = req.params;
+
+  const { data: file } = await supabase.from('files').select('owner_id').eq('id', id).single();
+  if (!file || file.owner_id !== user.id) {
+    return res.status(403).json({ error: 'Not allowed to delete this file.' });
+  }
+
+  // Optionally, delete from storage bucket also (implement as needed)
+
+  await supabase.from('files').delete().eq('id', id);
+  res.json({ success: true, message: 'File permanently deleted.' });
+});
+
+
+async function cascadePermanentDeleteFolder(folderId) {
+  // Delete files inside folder
+  await supabase.from('files').delete().eq('folder_id', folderId);
+
+  // Get subfolders
+  const { data: subfolders } = await supabase.from('folders').select('id').eq('parent_id', folderId);
+
+  // Recursively delete subfolders
+  if (subfolders?.length) {
+    for (const subfolder of subfolders) {
+      await cascadePermanentDeleteFolder(subfolder.id);
+    }
+  }
+
+  // Delete this folder
+  await supabase.from('folders').delete().eq('id', folderId);
+}
+
+
+
+router.delete('/trash/folder/:id/permanent', authMiddleware, async (req, res) => {
+  const user = req.user;
+  const { id } = req.params;
+
+  const { data: folder } = await supabase.from('folders').select('owner_id').eq('id', id).single();
+  if (!folder || folder.owner_id !== user.id) {
+    return res.status(403).json({ error: 'Not allowed to delete this folder.' });
+  }
+
+  // Optionally, cascade hard delete for all contents here
+
+  await cascadePermanentDeleteFolder(id);
+  res.json({ success: true, message: 'Folder permanently deleted.' });
+});
+
+
+async function addFileVersion(fileId, storageKey) {
+  // Get latest version number
+  const { data: latestVersion } = await supabase
+    .from('file_versions')
+    .select('version_number')
+    .eq('file_id', fileId)
+    .order('version_number', { ascending: false })
+    .limit(1)
+    .single();
+
+  const nextVersionNum = latestVersion ? latestVersion.version_number + 1 : 1;
+
+  await supabase.from('file_versions').insert([{
+    file_id: fileId,
+    storage_key: storageKey,
+    version_number: nextVersionNum,
+    created_at: new Date().toISOString()
+  }]);
+}
+
+
+
+
+
 
 // POST /api/files/:id/share-link
 router.post('/files/:id/share-link', authMiddleware, async (req, res) => {
@@ -371,7 +481,7 @@ router.post('/files/:id/share-link', authMiddleware, async (req, res) => {
   }]);
   if (error) return res.status(500).json({ error: error.message });
 
-  const shareUrl = `${process.env.SHARE_BASE_URL || 'http://localhost:3000'}/s/${token}`;
+  const shareUrl = `${process.env.SHARE_BASE_URL || 'http://localhost:8080'}/api/s/${token}`;
 
   // 3️⃣ Insert notification
     await supabase.from("notifications").insert({
@@ -402,10 +512,23 @@ router.post('/files/:id/permissions', authMiddleware, async (req, res) => {
   if (fileErr || !file || file.owner_id !== user.id)
     return res.status(403).json({ error: 'Not allowed' });
 
+  // 2. Look up user UUID for sharedWith email
+  const { data: userToShare, error: userErr } = await supabase
+    .from('users')
+    .select('id')
+    .eq('email', sharedWith)    // email passed from frontend
+    .single();
+
+  if (userErr || !userToShare)
+    return res.status(404).json({ error: "User not found" });
+
+  const targetUserId = userToShare.id;
+
+
   // Upsert permission (avoid duplicates)
   const { data, error } = await supabase.from('permissions').upsert([{
     file_id: id,
-    shared_with: sharedWith,
+    shared_with: targetUserId,
     permission_type: permissionType
   }], { onConflict: ['file_id', 'shared_with'] });
 
@@ -457,6 +580,54 @@ router.get('/s/:token', async (req, res) => {
 });
 
 
+// GET /api/files/:id/permissions-list
+router.get('/files/:id/permissions-list', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const user = req.user;
+  // Only owner can see full list
+  const { data: file, error } = await supabase.from('files').select('owner_id').eq('id', id).single();
+  if (error || !file || file.owner_id !== user.id)
+    return res.status(403).json({ error: 'Not allowed' });
+
+  const { data: perms, error: permErr } = await supabase
+    .from('permissions')
+    .select('shared_with, permission_type,users!permissions_shared_with_fkey(id, email)')
+    .eq('file_id', id);
+  if (permErr)
+    return res.status(500).json({ error: permErr.message });
+  res.json({ success: true, permissions: perms.map(p => ({ id: p.users?.id,
+      email: p.users?.email,
+      permissionType: p.permission_type })) });
+});
+
+
+// GET /api/files/:id/share-links
+router.get('/files/:id/share-links', authMiddleware, async (req, res) => {
+  const { id } = req.params;
+  const user = req.user;
+  const SHARE_BASE_URL = process.env.SHARE_BASE_URL || 'http://localhost:8080';
+  // Only owner can list
+  const { data: file, error } = await supabase.from('files').select('owner_id').eq('id', id).single();
+  if (error || !file || file.owner_id !== user.id)
+    return res.status(403).json({ error: 'Not allowed' });
+
+  const { data: links, error: linkErr } = await supabase
+    .from('share_links')
+    .select('link_token, permission_type, is_active')
+    .eq('file_id', id)
+    .eq('is_active', true);
+
+  if (linkErr) return res.status(500).json({ error: linkErr.message });
+
+  res.json({
+    success: true,
+    links: links.map(l => ({
+      url: `${SHARE_BASE_URL}/s/${l.link_token}`,
+      token: l.link_token,
+      permission_type: l.permission_type
+    }))
+  });
+});
 
 
 
@@ -797,9 +968,26 @@ router.get('/shared-with-me', authMiddleware, async (req, res) => {
 
   // Merge info to what frontend expects
   // To include shared_by, you'd need to resolve owner_id to email/name if needed.
+
+// Fetch all owners for these files:
+const ownerIds = [...new Set(files.map(f => f.owner_id))];
+
+const { data: owners, error: ownersError } = await supabase
+  .from('users')
+  .select('id, email')
+  .in('id', ownerIds);
+
+if (ownersError) {
+  return res.status(500).json({ error: ownersError.message });
+}
+
+// Map ownerId => email for easy lookup
+const ownerEmailMap = Object.fromEntries(owners.map(o => [o.id, o.email]));
+
   const results = files.map(f => ({
+    id: f.id,
     name: f.name,
-    shared_by: f.owner_id,
+    shared_by: ownerEmailMap[f.owner_id] || f.owner_id  ,
     shared_at: permissions.find(p => p.file_id === f.id)?.created_at
   }));
 
@@ -846,30 +1034,133 @@ router.get('/starred', authMiddleware, async (req, res) => {
 
 
 
+
+
 // In your files.js (or new trash.js) router
+// Helper to get full breadcrumb path for a folder recursively
+async function getFolderBreadcrumbs(folderId) {
+  const breadcrumbs = [];
+  let currentId = folderId;
+  while (currentId) {
+     console.log("Fetching folder:", currentId);
+    const { data: folder, error } = await supabase
+      .from('folders')
+      .select('id, name, parent_id')
+      .eq('id', currentId)
+      .single();
+    if (error || !folder) {
+       console.error("Breadcrumb fetch error or folder not found", error)
+      break;
+    }
+    breadcrumbs.unshift({ id: folder.id, name: folder.name });
+    currentId = folder.parent_id;
+  }
+  // Prepend root breadcrumb
+  breadcrumbs.unshift({ id: 'root', name: 'Trash' });
+  return breadcrumbs;
+}
+
 router.get('/trash', authMiddleware, async (req, res) => {
+  try{
   const user = req.user;
+  const parentId = req.query.parentId === 'null' ? null : req.query.parentId || null;
 
-  // Get soft-deleted files and folders for this user (assumes `is_deleted: true`)
-  const { data: files, error: filesError } = await supabase
-    .from('files')
+  // Get soft-deleted files and folders
+  const { data: files, error:filesError } = await supabase.from('files')
     .select('*')
     .eq('owner_id', user.id)
-    .eq('is_deleted', true);
+    .eq('is_deleted', true)
+    .eq('folder_id', parentId);
 
-  const { data: folders, error: foldersError } = await supabase
-    .from('folders')
+  const { data: folders , foldersError } = await supabase.from('folders')
     .select('*')
     .eq('owner_id', user.id)
-    .eq('is_deleted', true);
+    .eq('is_deleted', true)
+    .eq('parent_id', parentId);
 
-  if (filesError || foldersError) {
-    const msg = filesError?.message || foldersError?.message || 'Error fetching trash';
-    return res.status(500).json({ error: msg });
+
+    if (filesError || foldersError) {
+
+    const errMsg = filesError?.message || foldersError?.message || 'Failed to fetch trash';
+
+    return res.status(500).json({ error: errMsg });
+
   }
 
-  res.json({ files, folders });
+  // For each file and folder, get breadcrumbs
+  const filesWithBreadcrumbs = [];
+  for (const file of files) {
+    const breadcrumbs = await getFolderBreadcrumbs(file.folder_id);
+    filesWithBreadcrumbs.push({ ...file, breadcrumbs });
+  }
+
+  const foldersWithBreadcrumbs = [];
+  for (const folder of folders) {
+    const breadcrumbs = await getFolderBreadcrumbs(folder.parent_id);
+    foldersWithBreadcrumbs.push({ ...folder, breadcrumbs });
+  }
+
+  res.json({
+    success: true,
+    files: filesWithBreadcrumbs,
+    folders: foldersWithBreadcrumbs
+  });
+}
+catch(err){
+  console.error('Trash fetch error:', err);
+  res.status(500).json({ error: 'Failed to fetch trash contents' });
+
+}
 });
+
+async function cascadeRestoreFolder(folderId) {
+  await supabase.from('folders').update({ is_deleted: false }).eq('id', folderId);
+
+  // Restore files in this folder
+  await supabase.from('files').update({ is_deleted: false }).eq('folder_id', folderId);
+
+  // Get subfolders and restore recursively
+  const { data: subfolders } = await supabase.from('folders').select('id').eq('parent_id', folderId);
+  if (subfolders?.length) {
+    for (const subfolder of subfolders) {
+      await cascadeRestoreFolder(subfolder.id);
+    }
+  }
+}
+
+
+
+
+
+
+router.post('/trash/restore/file/:id', authMiddleware, async (req, res) => {
+  const user = req.user;
+  const { id } = req.params;
+
+  const { data: file } = await supabase.from('files').select('owner_id').eq('id', id).single();
+  if (!file || file.owner_id !== user.id) {
+    return res.status(403).json({ error: 'Not allowed to restore this file.' });
+  }
+
+  await supabase.from('files').update({ is_deleted: false }).eq('id', id);
+  res.json({ success: true, message: 'File restored.' });
+});
+
+router.post('/trash/restore/folder/:id', authMiddleware, async (req, res) => {
+  // Similar ownership check and restore
+  const user = req.user;
+  const { id } = req.params;
+
+  const { data: folder } = await supabase.from('folders').select('owner_id').eq('id', id).single();
+  if (!folder || folder.owner_id !== user.id) {
+    return res.status(403).json({ error: 'Not allowed to restore this folder.' });
+  }
+
+  // Optional: You may want cascading restore for subfolders/files
+  await cascadeRestoreFolder(id);
+  res.json({ success: true, message: 'Folder restored.' });
+});
+
 
 
 
