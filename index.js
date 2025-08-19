@@ -15,6 +15,9 @@ const app = express();
 const allowedOrigins = process.env.CORS_ORIGIN.split(",").map(origin =>
   origin.trim().replace(/\/$/, "") // strip trailing slash
 );
+console.log("Allowed Origins:", allowedOrigins);
+
+
 
 app.use(cors({
   origin: function(origin, callback){
