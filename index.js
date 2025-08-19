@@ -15,6 +15,7 @@ const allowedOrigins = process.env.CORS_ORIGIN.split(',').map(origin => origin.t
 
 app.use(cors({
   origin: function(origin, callback){
+    console.log("Incoming Origin:", origin);
     if(!origin) return callback(null, true); // allow non-browser requests
     if(allowedOrigins.indexOf(origin) === -1){
       const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
