@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient.js';
 import { authMiddleware } from '../middleware/authMiddleware.js';
 import crypto from 'crypto';
 import { findOrCreateFolder } from '../services/folderService.js'; 
+import { v4 as uuidv4 } from 'uuid';
 
 const upload = multer({ storage: multer.memoryStorage() });
 const router = express.Router();
@@ -94,6 +95,80 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
 
   if (dbError) throw dbError;
 
+
+  // Check if file with same name and folder already exists for this user (optional)
+    const { data: existingFile } = await supabase
+      .from('files')
+      .select('*')
+      .eq('owner_id', user.id)
+      .eq('name', file.originalname)
+      .eq('folder_id', folder_id)
+      .eq('is_deleted', false)
+      .limit(1)
+      .single();
+
+    let fileId;
+
+    if (existingFile) {
+      // Update existing file (replace storage_key, updated_at)
+      fileId = existingFile.id;
+
+      // Increment version number
+      const { data: latestVersion } = await supabase
+        .from('file_versions')
+        .select('version_number')
+        .eq('file_id', fileId)
+        .order('version_number', { ascending: false })
+        .limit(1)
+        .single();
+
+      const nextVersion = latestVersion ? latestVersion.version_number + 1 : 1;
+
+      // Insert new version
+      await supabase.from('file_versions').insert([{
+        file_id: fileId,
+        storage_key: storageKey,
+        version_number: nextVersion,
+      }]);
+
+      // Update main files table to current version
+      await supabase.from('files')
+        .update({
+          storage_key: storageKey,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', fileId);
+
+    } else {
+      // Insert new file
+      const { data: insertedFile, error: insertErr } = await supabase
+        .from('files')
+        .insert([{
+          name: file.originalname,
+          mime_type: file.mimetype,
+          size_bytes: file.size,
+          storage_key: storageKey,
+          owner_id: user.id,
+          folder_id: folder_id,
+          checksum,
+          is_deleted: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }])
+        .single();
+
+      if (insertErr) throw insertErr;
+
+      fileId = insertedFile.id;
+
+      // Insert initial version 1
+      await supabase.from('file_versions').insert([{
+        file_id: fileId,
+        storage_key: storageKey,
+        version_number: 1,
+      }]);
+    }
+
        // 2️⃣ Insert notification
     await supabase.from("notifications").insert({
       user_id: user.id,
@@ -112,6 +187,76 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
     return res.status(500).json({ success: false, message: err.message });
   }
 });
+
+router.get('/files/:id/versions', authMiddleware, async (req, res) => {
+  const fileId = req.params.id;
+  const user = req.user;
+
+  // Confirm ownership
+  const { data: file, error: fileErr } = await supabase
+    .from('files')
+    .select('owner_id')
+    .eq('id', fileId)
+    .single();
+
+  if (fileErr || !file || file.owner_id !== user.id) {
+    return res.status(403).json({ error: 'Not allowed' });
+  }
+
+  // Get versions ordered desc by version_number
+  const { data, error } = await supabase
+    .from('file_versions')
+    .select('*')
+    .eq('file_id', fileId)
+    .order('version_number', { ascending: false });
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ success: true, versions: data });
+});
+
+router.post('/files/:id/versions/:versionId/restore', authMiddleware, async (req, res) => {
+  const fileId = req.params.id;
+  const versionId = req.params.versionId;
+  const user = req.user;
+
+  // Confirm ownership
+  const { data: file, error: fileErr } = await supabase
+    .from('files')
+    .select('owner_id')
+    .eq('id', fileId)
+    .single();
+
+  if (fileErr || !file || file.owner_id !== user.id) {
+    return res.status(403).json({ error: 'Not allowed' });
+  }
+
+  // Get version info
+  const { data: version, error: versionErr } = await supabase
+    .from('file_versions')
+    .select('storage_key')
+    .eq('id', versionId)
+    .eq('file_id', fileId)
+    .single();
+
+  if (versionErr || !version) {
+    return res.status(404).json({ error: 'Version not found' });
+  }
+
+  // Update main file with version's storage_key and timestamp
+  const { error: updateError } = await supabase
+    .from('files')
+    .update({
+      storage_key: version.storage_key,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', fileId);
+
+  if (updateError) return res.status(500).json({ error: updateError.message });
+
+  res.json({ success: true, message: 'File version restored' });
+});
+
 
 
 router.post('/folders', authMiddleware, async (req, res) => {
@@ -1063,20 +1208,27 @@ async function getFolderBreadcrumbs(folderId) {
 router.get('/trash', authMiddleware, async (req, res) => {
   try{
   const user = req.user;
-  const parentId = req.query.parentId === 'null' ? null : req.query.parentId || null;
+ 
+    let parentId = req.query.parentId;
 
-  // Get soft-deleted files and folders
-  const { data: files, error:filesError } = await supabase.from('files')
-    .select('*')
-    .eq('owner_id', user.id)
-    .eq('is_deleted', true)
-    .eq('folder_id', parentId);
+if (!parentId || parentId === 'null') {
+  parentId = null;
+}
 
-  const { data: folders , foldersError } = await supabase.from('folders')
-    .select('*')
-    .eq('owner_id', user.id)
-    .eq('is_deleted', true)
-    .eq('parent_id', parentId);
+const filesQuery = supabase.from('files').select('*').eq('owner_id', user.id).eq('is_deleted', true);
+const foldersQuery = supabase.from('folders').select('*').eq('owner_id', user.id).eq('is_deleted', true);
+
+if (parentId === null) {
+  filesQuery.is('folder_id', null);
+  foldersQuery.is('parent_id', null);
+} else {
+  filesQuery.eq('folder_id', parentId);
+  foldersQuery.eq('parent_id', parentId);
+}
+
+const { data: files, error: filesError } = await filesQuery;
+const { data: folders, error: foldersError } = await foldersQuery;
+
 
 
     if (filesError || foldersError) {
@@ -1088,22 +1240,19 @@ router.get('/trash', authMiddleware, async (req, res) => {
   }
 
   // For each file and folder, get breadcrumbs
-  const filesWithBreadcrumbs = [];
-  for (const file of files) {
-    const breadcrumbs = await getFolderBreadcrumbs(file.folder_id);
-    filesWithBreadcrumbs.push({ ...file, breadcrumbs });
-  }
-
-  const foldersWithBreadcrumbs = [];
-  for (const folder of folders) {
-    const breadcrumbs = await getFolderBreadcrumbs(folder.parent_id);
-    foldersWithBreadcrumbs.push({ ...folder, breadcrumbs });
-  }
+  // Breadcrumb for the current parentId
+    let breadcrumbs = [];
+    if (parentId) {
+      breadcrumbs = await getFolderBreadcrumbs(parentId); // you already have this helper
+    } else {
+      breadcrumbs = [{ id: "root", name: "Trash" }];
+    }
 
   res.json({
     success: true,
-    files: filesWithBreadcrumbs,
-    folders: foldersWithBreadcrumbs
+   files,
+   folders,
+   breadcrumbs
   });
 }
 catch(err){
