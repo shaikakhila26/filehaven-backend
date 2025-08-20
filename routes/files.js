@@ -9,15 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 const upload = multer({ storage: multer.memoryStorage() });
 const router = express.Router();
 
-import express from 'express';
-import multer from 'multer';
-import crypto from 'crypto';
-import { v4 as uuidv4 } from 'uuid';
-import supabase from './supabaseClient'; // adjust import based on your file structure
-import authMiddleware from './authMiddleware'; // your auth middleware
 
-const upload = multer({ storage: multer.memoryStorage() });
-const router = express.Router();
 
 router.post('/upload', authMiddleware, upload.single('file'), async (req, res) => {
   try {
