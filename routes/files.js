@@ -1198,22 +1198,37 @@ router.get('/recent', authMiddleware, async (req, res) => {
 });
 
 // In files.js or starred.js router
+// ⭐ Get all starred items (files + folders)
 router.get('/starred', authMiddleware, async (req, res) => {
   const user = req.user;
 
-  // Get starred files for the user
-  const { data, error } = await supabase
+  // Get starred files
+  const { data: files, error: fileError } = await supabase
     .from('files')
-    .select('*')
+    .select('id, name, is_starred, created_at')
     .eq('owner_id', user.id)
-    .eq('is_deleted', false)
-    .eq('is_starred', true)
-    .order('updated_at', { ascending: false });
+    .eq('is_starred', true);
 
-  if (error) return res.status(500).json({ error: error.message });
+  // Get starred folders
+  const { data: folders, error: folderError } = await supabase
+    .from('folders')
+    .select('id, name, is_starred, created_at')
+    .eq('owner_id', user.id)
+    .eq('is_starred', true);
 
-  res.json(data);
+  if (fileError || folderError) {
+    return res.status(500).json({ error: fileError?.message || folderError?.message });
+  }
+
+  // Mark type for frontend
+  const allStarred = [
+    ...files.map((f) => ({ ...f, type: "file" })),
+    ...folders.map((f) => ({ ...f, type: "folder" })),
+  ];
+
+  res.json(allStarred);
 });
+
 
 
 
