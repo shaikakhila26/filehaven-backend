@@ -711,40 +711,52 @@ router.post('/files/:id/permissions', authMiddleware, async (req, res) => {
 
 // GET /s/:token (No auth required for public share)
 
-router.get('/s/:token', async (req, res) => {
+router.get("/s/:token", async (req, res) => {
   const { token } = req.params;
 
-  // Find share_link, check expiry/active
+  // 1. Get link info
   const { data: link, error: linkErr } = await supabase
-    .from('share_links')
-    .select('file_id, expires_at, is_active, permission_type')
-    .eq('link_token', token)
+    .from("share_links")
+    .select("file_id, expires_at, is_active, permission_type")
+    .eq("link_token", token)
     .single();
 
   if (linkErr || !link || !link.is_active || (link.expires_at && new Date() > new Date(link.expires_at))) {
-    return res.status(404).json({ error: 'Link expired or not found.' });
+    return res.status(404).json({ error: "Link expired or not found." });
   }
 
-  // Find file and path
+  // 2. Get file details
   const { data: file, error: fileErr } = await supabase
-    .from('files')
-    .select('storage_key')
-    .eq('id', link.file_id)
+    .from("files")
+    .select("id, name, path, size, created_at")
+    .eq("id", link.file_id)
     .single();
 
-  if (fileErr || !file) return res.status(404).json({ error: 'File not found.' });
+  if (fileErr || !file) {
+    return res.status(404).json({ error: "File not found." });
+  }
 
-  // Generate signed URL
-  const { data, error: urlErr } = await supabase.storage
-    .from('filehaven-files')
-    .createSignedUrl(file.storage_key, 900);
+  // 3. Get signed URL
+  const { data: signed, error: signedErr } = await supabase.storage
+    .from("files")
+    .createSignedUrl(file.path, 60 * 60); // valid 1 hr
 
-  if (urlErr)
-    return res.status(500).json({ error: 'Failed to generate signed URL.' });
+  if (signedErr) {
+    return res.status(500).json({ error: "Could not generate signed URL." });
+  }
 
-  res.json({ url: data.signedUrl, permission: link.permission_type });
+  // 4. Return response
+  return res.json({
+    file: {
+      name: file.name,
+      size: file.size,
+      created_at: file.created_at,
+    },
+    permission: link.permission_type,
+    expires_at: link.expires_at,
+    url: signed.signedUrl,
+  });
 });
-
 
 // GET /api/files/:id/permissions-list
 router.get('/files/:id/permissions-list', authMiddleware, async (req, res) => {
