@@ -119,7 +119,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
           is_deleted: false,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        }])
+        }], {returning :'representation'})
         .single();
 
       if (insertErr || !insertedFile || !insertedFile.id) 
