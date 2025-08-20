@@ -743,10 +743,11 @@ console.log("🔍 Looking for file_id:", link.file_id);
 
   // 3. Get signed URL
   const { data: signed, error: signedErr } = await supabase.storage
-    .from("files")
+    .from("filehaven-files")
     .createSignedUrl(file.storage_key, 60 * 60); // valid 1 hr
 
   if (signedErr) {
+    console.error("Signed URL error:", signedErr);
     return res.status(500).json({ error: "Could not generate signed URL." });
   }
 
