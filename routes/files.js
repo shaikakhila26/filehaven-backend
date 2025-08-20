@@ -5,6 +5,7 @@ import { authMiddleware } from '../middleware/authMiddleware.js';
 import crypto from 'crypto';
 import { findOrCreateFolder } from '../services/folderService.js'; 
 import { v4 as uuidv4 } from 'uuid';
+import { version } from 'os';
 
 const upload = multer({ storage: multer.memoryStorage() });
 const router = express.Router();
@@ -49,7 +50,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
     const checksum = crypto.createHash('md5').update(file.buffer).digest('hex');
 
     // Check if a file with the same name already exists (after upload!)
-    const { data: existingFile } = await supabase
+    const { data: existingFile , error : exFileErr  } = await supabase
       .from('files')
       .select('*')
       .eq('owner_id', user.id)
@@ -61,7 +62,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
 
     let fileId;
 
-    if (existingFile) {
+    if (existingFile && existingFile.id) {
       fileId = existingFile.id;
 
       // Generate unique storage keys *separately* for file_versions and main file update
@@ -79,21 +80,24 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
       const nextVersion = latestVersion ? latestVersion.version_number + 1 : 1;
 
       // Insert new version with unique key
-      await supabase.from('file_versions').insert([{
+     const {error :versionErr} =  await supabase.from('file_versions').insert([{
         file_id: fileId,
         storage_key: storageKeyForVersion,
         version_number: nextVersion,
       }]);
+      if (versionErr ) throw versionErr;
 
       // Update main file record with its own unique storage key (different from upload key and version key)
       const storageKeyForMainFile = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
 
-      await supabase.from('files')
-        .update({
+      const {error : updateErr} = await supabase.from('files')
+         .update({
           storage_key: storageKeyForMainFile,
           updated_at: new Date().toISOString(),
         })
         .eq('id', fileId);
+
+        if (updateErr) throw updateErr;
 
     } else {
       // New file insert
@@ -118,17 +122,23 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
         }])
         .single();
 
-      if (insertErr) throw insertErr;
+      if (insertErr || !insertedFile || !insertedFile.id) 
+    
+        {
+        console.error('Insert file error:', insertErr, insertedFile);
+        return res.status(500).json({ error: 'Failed to insert new file record' });
+      }
       fileId = insertedFile.id;
 
       // Insert initial version #1 with its own unique key!
       const storageKeyForVersion = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
 
-      await supabase.from('file_versions').insert([{
+      const {error :verErr} = await supabase.from('file_versions').insert([{
         file_id: fileId,
         storage_key: storageKeyForVersion,
         version_number: 1,
       }]);
+      if (verErr) throw verErr;
     }
 
     // Insert notification
