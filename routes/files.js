@@ -56,7 +56,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
 
 
     // Generate storage key for S3/Supabase
-    const storageKey = `uploads/${user.id}/${Date.now()}_${file.originalname}`;
+    const storageKey = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
 
     // Upload file buffer to Supabase Storage bucket
     const { data: uploadData, error: uploadError } = await supabase.storage
