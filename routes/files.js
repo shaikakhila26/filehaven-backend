@@ -260,32 +260,49 @@ router.post('/files/:id/versions/:versionId/restore', authMiddleware, async (req
 
 
 router.post('/folders', authMiddleware, async (req, res) => {
-  const user = req.user;
-  const { name, parent_id } = req.body;
+  try {
+    const user = req.user;
+    const { name, parent_id } = req.body;
 
-  const { error } = await supabase
-    .from('folders')
-    .insert([{
-      name,
-      owner_id: user.id,
-      parent_id: parent_id || null,
-    }]);
+    // Create folder
+    const { data: newFolder, error: folderError } = await supabase
+      .from('folders')
+      .insert([{
+        name,
+        owner_id: user.id,
+        parent_id: parent_id || null,
+      }])
+      .select()   // <-- returns the inserted folder(s)
 
-    await supabase.from("notifications").insert({
-  user_id: user.id,
-  type: "folder_created",
-  title: "Folder created",
-  message: `Folder "${name}" was created`,
-  icon: "folder",
-  timestamp: new Date().toISOString(),
-  read: false,
+    if (folderError) {
+      return res.status(500).json({ error: folderError.message });
+    }
+
+    // Create notification
+    const { error: notifError } = await supabase.from("notifications").insert({
+      user_id: user.id,
+      type: "folder_created",
+      title: "Folder created",
+      message: `Folder "${name}" was created`,
+      icon: "folder",
+      timestamp: new Date().toISOString(),
+      read: false,
+    });
+
+    if (notifError) {
+      console.error("Notification insert error:", notifError.message);
+      // don’t block folder creation – just log it
+    }
+
+    // Send proper response
+    res.status(201).json({ message: "Folder created", folder: newFolder[0] });
+
+  } catch (err) {
+    console.error("Folder creation error:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-
-  if (error) return res.status(500).json({ error: error.message });
-  res.status(201).json({ message: "Folder created", folder: newFolder });
-
-});
 
 
 router.patch('/folders/:id/rename', authMiddleware, async (req, res) => {
