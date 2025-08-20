@@ -644,7 +644,7 @@ router.post('/files/:id/share-link', authMiddleware, async (req, res) => {
   }]);
   if (error) return res.status(500).json({ error: error.message });
 
-  const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || 'http://localhost:3000';
+  const FRONTEND_BASE_URL = process.env.VITE_FRONTEND_BASE_URL || 'http://localhost:3000';
 
 const shareUrl = `${FRONTEND_BASE_URL}/s/${token}`;
 
