@@ -149,7 +149,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
   }
 });
 
-export default router;
+
 
 
 router.get('/files/:id/versions', authMiddleware, async (req, res) => {
