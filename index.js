@@ -19,14 +19,19 @@ console.log("Allowed Origins:", allowedOrigins);
 
 
 
+
 app.use(cors({
   origin: function(origin, callback){
     console.log("Incoming Origin:", origin);
     if(!origin) return callback(null, true); // allow non-browser requests
-    if(!allowedOrigins.includes(origin.replace(/\/$/, ""))){
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    }
+    const normalizedOrigin = origin?.trim().replace(/\/$/, "");
+console.log("🔍 Normalized Origin:", normalizedOrigin);
+
+if (!allowedOrigins.some(o => o === normalizedOrigin)) {
+  console.error("❌ Blocked by CORS:", { normalizedOrigin, allowedOrigins });
+  return callback(new Error("CORS not allowed"), false);
+}
+
     return callback(null, true);
   },
   credentials: true,

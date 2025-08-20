@@ -283,7 +283,8 @@ router.post('/folders', authMiddleware, async (req, res) => {
 
 
   if (error) return res.status(500).json({ error: error.message });
-  res.json({ success: true, message: 'Folder created.' });
+  res.status(201).json({ message: "Folder created", folder: newFolder });
+
 });
 
 
