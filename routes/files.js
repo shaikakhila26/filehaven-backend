@@ -730,7 +730,7 @@ console.log("🔍 Looking for file_id:", link.file_id);
   // 2. Get file details
   const { data: file, error: fileErr } = await supabase
     .from("files")
-    .select("id, name, path, size, created_at")
+    .select("id, name, size_bytes, created_at, storage_key")
     .eq("id", link.file_id)
     .single();
 
@@ -744,7 +744,7 @@ console.log("🔍 Looking for file_id:", link.file_id);
   // 3. Get signed URL
   const { data: signed, error: signedErr } = await supabase.storage
     .from("files")
-    .createSignedUrl(file.path, 60 * 60); // valid 1 hr
+    .createSignedUrl(file.storage_key, 60 * 60); // valid 1 hr
 
   if (signedErr) {
     return res.status(500).json({ error: "Could not generate signed URL." });
@@ -754,7 +754,7 @@ console.log("🔍 Looking for file_id:", link.file_id);
   return res.json({
     file: {
       name: file.name,
-      size: file.size,
+      size: file.size_bytes,
       created_at: file.created_at,
     },
     permission: link.permission_type,
@@ -1214,6 +1214,43 @@ router.get('/starred', authMiddleware, async (req, res) => {
 
   res.json(data);
 });
+
+
+
+// ⭐ Toggle star for file
+router.patch('/files/:id/star', authMiddleware, async (req, res) => {
+  const user = req.user;
+  const { starred } = req.body; // true/false
+
+  const { data, error } = await supabase
+    .from('files')
+    .update({ is_starred: starred })
+    .eq('id', req.params.id)
+    .eq('owner_id', user.id)
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// ⭐ Toggle star for folder
+router.patch('/folders/:id/star', authMiddleware, async (req, res) => {
+  const user = req.user;
+  const { starred } = req.body;
+
+  const { data, error } = await supabase
+    .from('folders')
+    .update({ is_starred: starred })
+    .eq('id', req.params.id)
+    .eq('owner_id', user.id)
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
 
 
 
