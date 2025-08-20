@@ -725,12 +725,17 @@ router.get("/s/:token", async (req, res) => {
     return res.status(404).json({ error: "Link expired or not found." });
   }
 
+console.log("🔍 Looking for file_id:", link.file_id);
+
   // 2. Get file details
   const { data: file, error: fileErr } = await supabase
     .from("files")
     .select("id, name, path, size, created_at")
     .eq("id", link.file_id)
     .single();
+
+
+    console.log("🔍 File query result:", file, fileErr);
 
   if (fileErr || !file) {
     return res.status(404).json({ error: "File not found." });

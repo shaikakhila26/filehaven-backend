@@ -9,7 +9,12 @@ import './utils/passport.js';
 import fileRoutes from './routes/files.js';
 
 dotenv.config();
+
+
 const app = express();
+
+console.log("FRONTEND_BASE_URL =", process.env.FRONTEND_BASE_URL);
+
 
 
 const allowedOrigins = process.env.CORS_ORIGIN.split(",").map(origin =>
