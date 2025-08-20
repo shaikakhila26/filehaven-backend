@@ -644,7 +644,7 @@ router.post('/files/:id/share-link', authMiddleware, async (req, res) => {
   }]);
   if (error) return res.status(500).json({ error: error.message });
 
-  const FRONTEND_BASE_URL = process.env.VITE_FRONTEND_BASE_URL || 'http://localhost:3000';
+  const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || 'http://localhost:3000';
 
 const shareUrl = `${FRONTEND_BASE_URL}/s/${token}`;
 
@@ -783,7 +783,7 @@ router.get('/files/:id/permissions-list', authMiddleware, async (req, res) => {
 router.get('/files/:id/share-links', authMiddleware, async (req, res) => {
   const { id } = req.params;
   const user = req.user;
-  const SHARE_BASE_URL = process.env.VITE_FRONTEND_BASE_URL || 'http://localhost:3000';
+  const SHARE_BASE_URL = process.env.FRONTEND_BASE_URL || 'http://localhost:3000';
   // Only owner can list
   const { data: file, error } = await supabase.from('files').select('owner_id').eq('id', id).single();
   if (error || !file || file.owner_id !== user.id)
