@@ -1321,7 +1321,11 @@ async function getFolderBreadcrumbs(folderId) {
   const breadcrumbs = [];
   let currentId = folderId;
   while (currentId) {
-    console.log(`Fetching breadcrumb for folder: ${currentId}`);
+    console.log(`[getFolderBreadcrumbs] Fetching breadcrumb for folder: ${currentId}`);
+    if (currentId === null || currentId === 'null') {
+      console.log('[getFolderBreadcrumbs] Breaking due to null folderId');
+      break;
+    }
     const { data: folder, error } = await supabase
       .from('folders')
       .select('id, name, parent_id')
@@ -1329,13 +1333,18 @@ async function getFolderBreadcrumbs(folderId) {
       .single();
 
     if (error || !folder) {
-      console.error('Breadcrumb fetch error or folder not found:', error?.message, error?.details);
+      console.error('[getFolderBreadcrumbs] Error or folder not found:', {
+        message: error?.message,
+        code: error?.code,
+        details: error?.details,
+      });
       break;
     }
     breadcrumbs.unshift({ id: folder.id, name: folder.name });
     currentId = folder.parent_id;
   }
   breadcrumbs.unshift({ id: 'root', name: 'Trash' });
+  console.log(`[getFolderBreadcrumbs] Generated breadcrumbs:`, breadcrumbs);
   return breadcrumbs;
 }
 
@@ -1364,7 +1373,7 @@ router.get('/trash', authMiddleware, async (req, res) => {
     const folders = allItems.filter(item => item.type === 'folder');
 
     let breadcrumbs = [{ id: 'root', name: 'Trash' }];
-    if (parentId) {
+    if (parentId && parentId !== 'null') { // Only fetch breadcrumbs if parentId is a valid UUID
       breadcrumbs = await getFolderBreadcrumbs(parentId);
     }
 
@@ -1384,6 +1393,7 @@ router.get('/trash', authMiddleware, async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch trash contents', details: err.message });
   }
 });
+
 /*
 router.get('/trash', authMiddleware, async (req, res) => {
   try{
