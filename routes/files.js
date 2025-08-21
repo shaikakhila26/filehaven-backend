@@ -280,6 +280,10 @@ router.post('/folders', authMiddleware, async (req, res) => {
       parent_id = null;
     }
 
+    if (!folder_id || folder_id === "null" || folder_id === "root") {
+  folder_id = null;
+}
+
 
     // Create folder
     const { data: newFolder, error: folderError } = await supabase
