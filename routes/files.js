@@ -632,41 +632,73 @@ router.post('/files/:id/permissions', authMiddleware, async (req, res) => {
   const { sharedWith, permissionType } = req.body;
   const user = req.user;
 
+  // Log request details
+  console.log('Permission request - fileId:', id, 'sharedWith:', sharedWith, 'permissionType:', permissionType, 'Timestamp:', new Date().toISOString());
+
+  // Validate inputs
+  if (!id || id === "undefined") {
+    return res.status(400).json({ error: 'Invalid file ID' });
+  }
+  if (!sharedWith || typeof sharedWith !== 'string') {
+    return res.status(400).json({ error: 'Email is required' });
+  }
+  if (!permissionType || !['view', 'edit'].includes(permissionType)) {
+    return res.status(400).json({ error: 'Invalid permission type' });
+  }
+
   // Only owner may share/edit permission
   const { data: file, error: fileErr } = await supabase
     .from('files')
     .select('owner_id')
-    .eq('id', id).single();
-  if (fileErr || !file || file.owner_id !== user.id)
+    .eq('id', id)
+    .single();
+  if (fileErr || !file || file.owner_id !== user.id) {
     return res.status(403).json({ error: 'Not allowed' });
+  }
 
-  // 2. Look up user UUID for sharedWith email
+  // Look up user UUID for sharedWith email
   const { data: userToShare, error: userErr } = await supabase
     .from('users')
     .select('id')
-    .eq('email', sharedWith)    // email passed from frontend
+    .eq('email', sharedWith.trim().toLowerCase())
     .single();
 
-  if (userErr || !userToShare)
-    return res.status(404).json({ error: "User not found" });
+  if (userErr && userErr.code !== 'PGRST116') {
+    console.error('User lookup error:', userErr.message);
+    return res.status(500).json({ error: 'Error looking up user' });
+  }
 
-  const targetUserId = userToShare.id;
-
+  let targetUserId;
+  if (!userToShare) {
+    // Optionally create a new user (uncomment if desired)
+    // const { data: newUser, error: insertError } = await supabase
+    //   .from('users')
+    //   .insert([{ email: sharedWith.trim().toLowerCase() }])
+    //   .select('id')
+    //   .single();
+    // if (insertError) {
+    //   console.error('User insert error:', insertError.message);
+    //   return res.status(500).json({ error: 'Error creating user' });
+    // }
+    // targetUserId = newUser.id;
+    return res.status(404).json({ error: 'User not found' }); // Reject if user doesn't exist
+  } else {
+    targetUserId = userToShare.id;
+  }
 
   // Upsert permission (avoid duplicates)
-  const { data, error } = await supabase.from('permissions').upsert([{
-    file_id: id,
-    shared_with: targetUserId,
-    permission_type: permissionType
-  }], { onConflict: ['file_id', 'shared_with'] });
-
-  console.log('Upsert data:', data);
-  console.log('Upsert error:', error);
+  const { data, error } = await supabase
+    .from('permissions')
+    .upsert([{ file_id: id, shared_with: targetUserId, permission_type: permissionType }], {
+      onConflict: ['file_id', 'shared_with'],
+    });
 
   if (error) {
+    console.error('Upsert error:', error.message, 'Data:', data);
     return res.status(500).json({ error: error.message });
   }
 
+  console.log('Upsert success - data:', data);
   res.json({ success: true, message: 'Permission granted.' });
 });
 
