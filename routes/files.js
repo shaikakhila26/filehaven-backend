@@ -670,36 +670,32 @@ router.post('/files/:id/permissions', authMiddleware, async (req, res) => {
 
   let targetUserId;
   if (!userToShare) {
-    // Optionally create a new user (uncomment if desired)
-    // const { data: newUser, error: insertError } = await supabase
-    //   .from('users')
-    //   .insert([{ email: sharedWith.trim().toLowerCase() }])
-    //   .select('id')
-    //   .single();
-    // if (insertError) {
-    //   console.error('User insert error:', insertError.message);
-    //   return res.status(500).json({ error: 'Error creating user' });
-    // }
-    // targetUserId = newUser.id;
     return res.status(404).json({ error: 'User not found' }); // Reject if user doesn't exist
   } else {
     targetUserId = userToShare.id;
   }
 
-  // Upsert permission (avoid duplicates)
-  const { data, error } = await supabase
+  // Upsert permission with explicit select to return the row
+  const { data, error, count } = await supabase
     .from('permissions')
-    .upsert([{ file_id: id, shared_with: targetUserId, permission_type: permissionType }], {
-      onConflict: ['file_id', 'shared_with'],
-    });
+    .upsert(
+      [{ file_id: id, shared_with: targetUserId, permission_type: permissionType }],
+      { onConflict: ['file_id', 'shared_with'], returning: 'representation' } // Ensure row is returned
+    )
+    .select('*'); // Explicitly select all columns
 
   if (error) {
     console.error('Upsert error:', error.message, 'Data:', data);
     return res.status(500).json({ error: error.message });
   }
 
+  if (!data || data.length === 0) {
+    console.log('No rows affected by upsert - possible conflict with no changes');
+    return res.status(200).json({ success: true, message: 'Permission already exists.' });
+  }
+
   console.log('Upsert success - data:', data);
-  res.json({ success: true, message: 'Permission granted.' });
+  res.json({ success: true, message: 'Permission granted.', permissions: data });
 });
 
 
