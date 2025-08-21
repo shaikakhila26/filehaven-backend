@@ -24,15 +24,18 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
     }
 
     // Sanitize folder_id from frontend
-    let { folder_id } = req.body;
+    let folder_id  = req.body.folder_id;
     console.log("Initial folder_id from req.body:", folder_id);
-    if (!folder_id || folder_id === "null" || folder_id === "root") {
+    if (!folder_id === undefined || folder_id === "null" || folder_id === "root") {
       folder_id = null;
+    }
+    else if (typeof folder_id === "string") {
+      folder_id = folder_id.trim(); // Clean up any whitespace
     }
 console.log("Sanitized folder_id:", folder_id); // Debug log
 
     // Ensure folder_id is null if root
-   const finalFolderId = (!folder_id || folder_id === "null" || folder_id === "root") ? null : folder_id;
+   let finalFolderId = (!folder_id === null|| folder_id === "null" || folder_id === "root") ? null : folder_id;
    console.log("finalFolderId before relativePath:", finalFolderId); // Debug log
 
     // Handle relativePath folder creation
@@ -45,7 +48,7 @@ console.log("Sanitized folder_id:", folder_id); // Debug log
        const newFolderId = await findOrCreateFolder(user.id, folderName, folder_id);
         console.log("Folder created with id:", newFolderId); // Debug log
         if (!newFolderId) {
-          throw new Error("Failed to create or find folder");
+          throw new Error(`Failed to create or find folder: ${folderName}`);
         }
         folder_id = newFolderId; // Update folder_id with valid UUID
       }
@@ -67,6 +70,9 @@ console.log("Sanitized folder_id:", folder_id); // Debug log
 console.log("Payload folder_id before insert:", finalFolderId); // Debug log
     if (finalFolderId !== null && typeof finalFolderId !== 'string') {
       throw new Error("Invalid folder_id format");
+    }
+    if (finalFolderId === "null") {
+      finalFolderId = null; // Force correction if somehow stringified
     }
     // Use safeFolderId for all DB queries
     const payload = {
