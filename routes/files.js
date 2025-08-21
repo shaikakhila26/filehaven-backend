@@ -17,7 +17,12 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
   try {
     const file = req.file;
     if (!file) return res.status(400).json({ error: 'No file uploaded' });
-    let folder_id = req.body.folder_id || null;
+    let folder_id = req.body.folder_id ;
+
+    // Fix: treat "null" or "root" string as actual null
+if (!folder_id || folder_id === "null" || folder_id === "root") {
+  folder_id = null;
+}
 
     const user = req.user;
     if (!user?.id) {
