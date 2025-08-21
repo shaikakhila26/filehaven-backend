@@ -29,9 +29,11 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
     if (!folder_id || folder_id === "null" || folder_id === "root") {
       folder_id = null;
     }
+console.log("Sanitized folder_id:", folder_id); // Debug log
 
     // Ensure folder_id is null if root
    const finalFolderId = (!folder_id || folder_id === "null" || folder_id === "root") ? null : folder_id;
+   console.log("finalFolderId before relativePath:", finalFolderId); // Debug log
 
     // Handle relativePath folder creation
     const relativePath = req.body.relativePath; 
@@ -48,6 +50,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
         folder_id = newFolderId; // Update folder_id with valid UUID
       }
     }
+   console.log("finalFolderId after relativePath:", finalFolderId); // Debug log 
 
     const storageKey = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
 
@@ -61,6 +64,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
     const checksum = crypto.createHash('md5').update(file.buffer).digest('hex');
 
 // Validate finalFolderId before insert
+console.log("Payload folder_id before insert:", finalFolderId); // Debug log
     if (finalFolderId !== null && typeof finalFolderId !== 'string') {
       throw new Error("Invalid folder_id format");
     }
