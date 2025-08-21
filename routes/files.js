@@ -59,7 +59,8 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
       .eq('folder_id', folder_id)
       .eq('is_deleted', false)
       .limit(1)
-      .single();
+      .single()
+      .catch(()=> ({ data:null}));
 
     let fileId = uuidv4();
 
@@ -164,7 +165,7 @@ const {  error: insertErr } = await supabase
       const storageKeyForVersion = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
 
       const {error :verErr} = await supabase.from('file_versions').insert([{
-        file_id: fieldId,
+        file_id: fileId,
         storage_key: storageKeyForVersion,
         version_number: 1,
       }]);
