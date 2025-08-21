@@ -148,7 +148,7 @@ const {  error: insertErr } = await supabase
   .from('files')
   .insert([payload], { returning: 'minimal' }); // remove .single() temporarily
 
-console.log('Insert result:', { insertedFileArray, insertErr });
+
 
 
 
