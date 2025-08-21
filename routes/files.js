@@ -77,8 +77,8 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
         .eq('file_id', fileId)
         .order('version_number', { ascending: false })
         .limit(1)
-        .single()
-        .catch(()=> ({data :null }));
+        .single();
+      
 
       const nextVersion = latestVersion ? latestVersion.version_number + 1 : 1;
 
