@@ -925,7 +925,7 @@ router.get('/search/files', authMiddleware, async (req, res) => {
       pageSize = '20',
       fileType = '',         // "document" | "image" | "video" | "audio" | "archive"
       owner = '',            // "" | "me" | "shared"
-      location = '',         // "" | "mydrive" | "shared" | "recent" | "trash"
+      location = '',         // "" | "mydrive" | "shared" | "recent" | ""
       inTrash = 'false',
       starred = 'false',
       encrypted = 'false',
@@ -1286,6 +1286,78 @@ async function getFolderBreadcrumbs(folderId) {
   return breadcrumbs;
 }
 
+
+
+async function getAllTrashItems(parentId, userId) {
+  const items = [];
+
+  // Fetch folders under the current parentId
+  const { data: folders, error: foldersError } = await supabase
+    .from('folders')
+    .select('id, name, parent_id, updated_at, created_at, deleted_at')
+    .eq('owner_id', userId)
+    .eq('is_deleted', true)
+    .eq('parent_id', parentId || null);
+
+  if (foldersError) throw foldersError;
+
+  // Fetch files under the current parentId
+  const { data: files, error: filesError } = await supabase
+    .from('files')
+    .select('id, name, folder_id, updated_at, created_at, deleted_at')
+    .eq('owner_id', userId)
+    .eq('is_deleted', true)
+    .eq('folder_id', parentId || null);
+
+  if (filesError) throw filesError;
+
+  // Add current level files and folders
+  items.push(...(files || []).map(f => ({ ...f, type: 'file' })));
+  items.push(...(folders || []).map(f => ({ ...f, type: 'folder' })));
+
+  // Recursively fetch items from subfolders
+  for (const folder of folders || []) {
+    const subItems = await getAllTrashItems(folder.id, userId);
+    items.push(...subItems);
+  }
+
+  return items;
+}
+
+router.get('/trash', authMiddleware, async (req, res) => {
+  try {
+    const user = req.user;
+    let parentId = req.query.parentId;
+
+    if (!parentId || parentId === 'null') {
+      parentId = null;
+    }
+
+    // Fetch all trash items recursively
+    const allItems = await getAllTrashItems(parentId, user.id);
+
+    // Separate files and folders for the response
+    const files = allItems.filter(item => item.type === 'file');
+    const folders = allItems.filter(item => item.type === 'folder');
+
+    // Generate breadcrumbs
+    let breadcrumbs = [{ id: 'root', name: 'Trash' }];
+    if (parentId) {
+      breadcrumbs = await getFolderBreadcrumbs(parentId);
+    }
+
+    res.json({
+      success: true,
+      files,
+      folders,
+      breadcrumbs,
+    });
+  } catch (err) {
+    console.error('Trash fetch error:', err);
+    res.status(500).json({ error: 'Failed to fetch trash contents' });
+  }
+});
+/*
 router.get('/trash', authMiddleware, async (req, res) => {
   try{
   const user = req.user;
@@ -1341,7 +1413,7 @@ catch(err){
   res.status(500).json({ error: 'Failed to fetch trash contents' });
 
 }
-});
+});*/
 
 async function cascadeRestoreFolder(folderId) {
   await supabase.from('folders').update({ is_deleted: false }).eq('id', folderId);
