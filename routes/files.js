@@ -107,6 +107,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
       const storageKeyForMainFile = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
 
       // Insert new file
+      /*
       const { data: insertedFile, error: insertErr } = await supabase
         .from('files')
         .insert([{
@@ -122,6 +123,31 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
           updated_at: new Date().toISOString(),
         }], {returning :'representation'})
         .single();
+
+       */
+
+// Prepare payload
+const payload = {
+  name: file.originalname,
+  mime_type: file.mimetype,
+  size_bytes: file.size,
+  storage_key: storageKeyForMainFile,
+  owner_id: user.id,
+  folder_id: folder_id,
+  checksum,
+  is_deleted: false,
+  created_at: new Date().toISOString(),
+  updated_at: new Date().toISOString(),
+};
+console.log('Inserting file payload:', payload);
+
+// Insert into Supabase
+const { data: insertedFile, error: insertErr } = await supabase
+  .from('files')
+  .insert([payload], { returning: 'representation' }); // remove .single() temporarily
+
+console.log('Insert result:', { insertedFile, insertErr });
+
 
       if (insertErr || !insertedFile || !insertedFile.id) 
     
