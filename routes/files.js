@@ -23,40 +23,42 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
       return res.status(401).json({ error: 'Invalid or missing user ID in token' });
     }
 
-    // Sanitize folder_id from frontend
-    let folder_id  = req.body.folder_id;
+    // Extract and sanitize folder_id from req.body
+    let folder_id = req.body.folder_id;
     console.log("Initial folder_id from req.body:", folder_id);
-    if (!folder_id === undefined || folder_id === "null" || folder_id === "root") {
+    if (folder_id === undefined || folder_id === "null" || folder_id === "root" || folder_id === "") {
       folder_id = null;
+    } else if (typeof folder_id === "string") {
+      folder_id = folder_id.trim();
     }
-    else if (typeof folder_id === "string") {
-      folder_id = folder_id.trim(); // Clean up any whitespace
-    }
-console.log("Sanitized folder_id:", folder_id); // Debug log
+    console.log("Sanitized folder_id:", folder_id);
 
-    // Ensure folder_id is null if root
-   let finalFolderId = (!folder_id === null|| folder_id === "null" || folder_id === "root") ? null : folder_id;
-   console.log("finalFolderId before relativePath:", finalFolderId); // Debug log
+    let finalFolderId = (folder_id === null || folder_id === "null" || folder_id === "root") ? null : folder_id;
+    console.log("finalFolderId before relativePath:", finalFolderId);
 
-    // Handle relativePath folder creation
+    // Handle relativePath folder creation separately with error handling
     let tempFolderId = folder_id;
     if (req.body.relativePath) {
-      const parts = req.body.relativePath.split('/').filter(Boolean);
-      parts.pop(); // Remove file name
-      for (const folderName of parts) {
-
-       const newFolderId = await findOrCreateFolder(user.id, folderName, folder_id);
-        console.log("Folder created with id:", newFolderId); // Debug log
-        if (!newFolderId) {
-          throw new Error(`Failed to create or find folder: ${folderName}`);
+      try {
+        const parts = req.body.relativePath.split('/').filter(Boolean);
+        parts.pop(); // Remove file name
+        for (const folderName of parts) {
+          console.log(`Processing folder: ${folderName}, parentId: ${tempFolderId}`);
+          const newFolderId = await findOrCreateFolder(user.id, folderName, tempFolderId);
+          console.log(`Folder ${folderName} created with id: ${newFolderId}`);
+          if (!newFolderId) {
+            throw new Error(`Failed to create or find folder: ${folderName}`);
+          }
+          tempFolderId = newFolderId; // Update tempFolderId
         }
-        folder_id = newFolderId; // Update folder_id with valid UUID
+        if (tempFolderId) finalFolderId = tempFolderId; // Update only if a new folder is created
+      } catch (loopErr) {
+        console.error("RelativePath loop error:", loopErr.message);
+        throw loopErr;
       }
-      // Optionally use tempFolderId as the final folder_id if subfolders are created
-      if (tempFolderId) finalFolderId = tempFolderId; // Only update if a new folder is created
     }
-   console.log("finalFolderId after relativePath:", finalFolderId); // Debug log 
-   console.log("tempFolderId after loop:", tempFolderId);
+    console.log("finalFolderId after relativePath:", finalFolderId);
+    console.log("tempFolderId after loop:", tempFolderId);
 
     const storageKey = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
 
@@ -69,15 +71,15 @@ console.log("Sanitized folder_id:", folder_id); // Debug log
 
     const checksum = crypto.createHash('md5').update(file.buffer).digest('hex');
 
-// Validate finalFolderId before insert
-console.log("Payload folder_id before insert:", finalFolderId); // Debug log
+    // Final validation and logging before insert
+    console.log("Payload folder_id before insert:", finalFolderId);
     if (finalFolderId !== null && typeof finalFolderId !== 'string') {
       throw new Error("Invalid folder_id format");
     }
     if (finalFolderId === "null") {
       finalFolderId = null; // Force correction if somehow stringified
     }
-    // Use safeFolderId for all DB queries
+
     const payload = {
       id: uuidv4(),
       name: file.originalname,
@@ -85,7 +87,7 @@ console.log("Payload folder_id before insert:", finalFolderId); // Debug log
       size_bytes: file.size,
       storage_key: storageKey,
       owner_id: user.id,
-      folder_id: finalFolderId,  // <-- always null for root
+      folder_id: finalFolderId,
       checksum,
       is_deleted: false,
       created_at: new Date().toISOString(),
@@ -101,7 +103,6 @@ console.log("Payload folder_id before insert:", finalFolderId); // Debug log
       throw insertErr;
     }
 
-    // Insert notification
     await supabase.from("notifications").insert({
       user_id: user.id,
       type: "file_uploaded",
@@ -118,7 +119,6 @@ console.log("Payload folder_id before insert:", finalFolderId); // Debug log
     return res.status(500).json({ success: false, message: err.message });
   }
 });
-
 
 
 
