@@ -1268,34 +1268,50 @@ async function getAllTrashItems(parentId, userId) {
   const items = [];
 
   try {
-    console.log(`Fetching trash items for parentId: ${parentId}, userId: ${userId}`);
+    console.log(`[getAllTrashItems] Fetching items for parentId: ${parentId}, userId: ${userId}`);
     // Fetch folders under the current parentId
-    const { data: folders, error: foldersError } = await supabase
+    let foldersQuery = supabase
       .from('folders')
       .select('id, name, parent_id, updated_at, created_at')
       .eq('owner_id', userId)
-      .eq('is_deleted', true)
-      .eq('parent_id', parentId);
+      .eq('is_deleted', true);
 
-    if (foldersError) {
-      console.error('Folders query error:', foldersError.message, foldersError.details);
-      throw foldersError;
-    }
-    console.log(`Fetched ${folders?.length || 0} folders`);
-
-    // Fetch files under the current parentId
-    const { data: files, error: filesError } = await supabase
+    let filesQuery = supabase
       .from('files')
       .select('id, name, folder_id, updated_at, created_at')
       .eq('owner_id', userId)
-      .eq('is_deleted', true)
-      .eq('folder_id', parentId);
+      .eq('is_deleted', true);
 
+    // Conditionally apply parentId or null check
+    if (parentId !== null) {
+      foldersQuery = foldersQuery.eq('parent_id', parentId);
+      filesQuery = filesQuery.eq('folder_id', parentId);
+    } else {
+      foldersQuery = foldersQuery.is('parent_id', null);
+      filesQuery = filesQuery.is('folder_id', null);
+    }
+
+    const { data: folders, error: foldersError } = await foldersQuery;
+    if (foldersError) {
+      console.error('[getAllTrashItems] Folders query error:', {
+        message: foldersError.message,
+        code: foldersError.code,
+        details: foldersError.details,
+      });
+      throw foldersError;
+    }
+    console.log(`[getAllTrashItems] Fetched ${folders?.length || 0} folders`);
+
+    const { data: files, error: filesError } = await filesQuery;
     if (filesError) {
-      console.error('Files query error:', filesError.message, filesError.details);
+      console.error('[getAllTrashItems] Files query error:', {
+        message: filesError.message,
+        code: filesError.code,
+        details: filesError.details,
+      });
       throw filesError;
     }
-    console.log(`Fetched ${files?.length || 0} files`);
+    console.log(`[getAllTrashItems] Fetched ${files?.length || 0} files`);
 
     // Add current level files and folders
     items.push(...(files || []).map(f => ({ ...f, type: 'file' })));
@@ -1304,7 +1320,7 @@ async function getAllTrashItems(parentId, userId) {
     // Recursively fetch items from subfolders
     if (parentId) {
       for (const folder of folders || []) {
-        console.log(`Recursing into folder ${folder.id}`);
+        console.log(`[getAllTrashItems] Recursing into folder ${folder.id}`);
         const subItems = await getAllTrashItems(folder.id, userId);
         items.push(...subItems);
       }
@@ -1312,7 +1328,11 @@ async function getAllTrashItems(parentId, userId) {
 
     return items;
   } catch (err) {
-    console.error('Error in getAllTrashItems:', err.message, err.details);
+    console.error('[getAllTrashItems] Error:', {
+      message: err.message,
+      stack: err.stack,
+      details: err.details,
+    });
     throw err;
   }
 }
