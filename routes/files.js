@@ -17,21 +17,23 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
   try {
     const file = req.file;
     if (!file) return res.status(400).json({ error: 'No file uploaded' });
-   
-let { folder_id } = req.body;
-if (!folder_id || folder_id === "null" || folder_id === "root") {
-  folder_id = null;
-}
-// Now you can safely use `folder_id` directly in your database queries
 
     const user = req.user;
     if (!user?.id) {
       return res.status(401).json({ error: 'Invalid or missing user ID in token' });
     }
 
-    // Handle relativePath folder creation as before
-    const relativePath = req.body.relativePath; // e.g. sub1/sub2/file.txt
+    // Sanitize folder_id from frontend
+    let { folder_id } = req.body;
+    if (!folder_id || folder_id === "null" || folder_id === "root") {
+      folder_id = null;
+    }
 
+    // Ensure folder_id is null if root
+   const finalFolderId = (!folder_id || folder_id === "null" || folder_id === "root") ? null : folder_id;
+
+    // Handle relativePath folder creation
+    const relativePath = req.body.relativePath; 
     if (relativePath) {
       const parts = relativePath.split('/').filter(Boolean);
       parts.pop(); // Remove file name
@@ -40,148 +42,37 @@ if (!folder_id || folder_id === "null" || folder_id === "root") {
       }
     }
 
-    // Generate unique storage key for the physical upload (once)
     const storageKey = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
 
-    // Upload to Supabase Storage bucket
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('filehaven-files')
       .upload(storageKey, file.buffer, {
         contentType: file.mimetype,
       });
-
     if (uploadError) throw uploadError;
 
-    // Generate checksum
     const checksum = crypto.createHash('md5').update(file.buffer).digest('hex');
 
-    console.log('Using folder_id for existingFile query:', folder_id);
+    // Use safeFolderId for all DB queries
+    const payload = {
+      id: uuidv4(),
+      name: file.originalname,
+      mime_type: file.mimetype,
+      size_bytes: file.size,
+      storage_key: storageKey,
+      owner_id: user.id,
+      folder_id: finalFolderId,  // <-- always null for root
+      checksum,
+      is_deleted: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
 
-    // Check if a file with the same name already exists (after upload!)
-    const { data: existingFile , error : exFileErr  } = await supabase
+    const { error: insertErr } = await supabase
       .from('files')
-      .select('*')
-      .eq('owner_id', user.id)
-      .eq('name', file.originalname)
-      .eq('folder_id', (folder_id === "null" || folder_id === "root") ? null : folder_id)
-      .eq('is_deleted', false)
-      .limit(1)
-      .single();
-      
+      .insert([payload], { returning: 'minimal' });
 
-    let fileId = uuidv4();
-
-    if (existingFile && existingFile.id) {
-      fileId = existingFile.id;
-
-      // Generate unique storage keys *separately* for file_versions and main file update
-      const storageKeyForVersion = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
-
-      // Get latest version
-      const { data: latestVersion } = await supabase
-        .from('file_versions')
-        .select('version_number')
-        .eq('file_id', fileId)
-        .order('version_number', { ascending: false })
-        .limit(1)
-        .single();
-      
-
-      const nextVersion = latestVersion ? latestVersion.version_number + 1 : 1;
-
-      // Insert new version with unique key
-     const {error :versionErr} =  await supabase.from('file_versions').insert([{
-        file_id: fileId,
-        storage_key: storageKeyForVersion,
-        version_number: nextVersion,
-      }]);
-      if (versionErr ) throw versionErr;
-
-      // Update main file record with its own unique storage key (different from upload key and version key)
-      const storageKeyForMainFile = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
-
-      const {error : updateErr} = await supabase.from('files')
-         .update({
-          storage_key: storageKeyForMainFile,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', fileId);
-
-        if (updateErr) throw updateErr;
-
-    } else {
-      // New file insert
-
-      // Generate unique storage key for main file record (different from upload key)
-      const storageKeyForMainFile = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
-
-      // Insert new file
-      /*
-      const { data: insertedFile, error: insertErr } = await supabase
-        .from('files')
-        .insert([{
-          name: file.originalname,
-          mime_type: file.mimetype,
-          size_bytes: file.size,
-          storage_key: storageKeyForMainFile,
-          owner_id: user.id,
-          folder_id: folder_id,
-          checksum,
-          is_deleted: false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }], {returning :'representation'})
-        .single();
-
-       */
-
-        const safeFolderId = (folder_id === "null" || folder_id === "root") ? null : folder_id;
-
-console.log("DEBUG: About to use folder_id for DB operation:", folder_id, typeof folder_id);
-
-// Prepare payload
-const payload = {
-  id:fileId,
-  name: file.originalname,
-  mime_type: file.mimetype,
-  size_bytes: file.size,
-  storage_key: storageKey,
-  owner_id: user.id,
-  folder_id: safeFolderId,
-  checksum,
-  is_deleted: false,
-  created_at: new Date().toISOString(),
-  updated_at: new Date().toISOString(),
-};
-console.log('Inserting file payload:', payload);
-
-// Insert into Supabase
-const {  error: insertErr } = await supabase
-  .from('files')
-  .insert([payload], { returning: 'minimal' }); // remove .single() temporarily
-
-
-
-
-
-      if (insertErr ) 
-    
-        {
-        console.error('Insert file error:', insertErr);
-        return res.status(500).json({ error: 'Failed to insert new file record' });
-      }
-      //fileId = insertedFile.id;
-
-      // Insert initial version #1 with its own unique key!
-      const storageKeyForVersion = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
-
-      const {error :verErr} = await supabase.from('file_versions').insert([{
-        file_id: fileId,
-        storage_key: storageKeyForVersion,
-        version_number: 1,
-      }]);
-      if (verErr) throw verErr;
-    }
+    if (insertErr) throw insertErr;
 
     // Insert notification
     await supabase.from("notifications").insert({
