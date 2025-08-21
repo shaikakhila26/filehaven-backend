@@ -170,13 +170,30 @@ router.post('/files/:id/versions/:versionId/restore', authMiddleware, async (req
 router.post('/folders', authMiddleware, async (req, res) => {
   try {
     const user = req.user;
-    const { name, parent_id } = req.body;
+    let { name, parent_id } = req.body;
+
+    // Validate input
+    console.log("Request body:", req.body);
+    if (!name || typeof name !== 'string' || name.trim() === '') {
+      return res.status(400).json({ error: 'Folder name is required' });
+    }
 
     // Fix: treat "null" or "root" string as actual null
     if (!parent_id || parent_id === "null" || parent_id === "root") {
       parent_id = null;
     }
 
+    else if (parent_id && typeof parent_id === 'string') {
+      const { data: parentExists, error: parentError } = await supabase
+        .from('folders')
+        .select('id')
+        .eq('id', parent_id)
+        .eq('is_deleted', false)
+        .single();
+      if (parentError || !parentExists) {
+        return res.status(400).json({ error: 'Invalid parent folder ID' });
+      }
+    }
   
 
 
@@ -187,11 +204,12 @@ router.post('/folders', authMiddleware, async (req, res) => {
       .insert([{
         name,
         owner_id: user.id,
-        parent_id: parent_id || null,
+        parent_id: parent_id ,
       }])
       .select()   // <-- returns the inserted folder(s)
 
     if (folderError) {
+      console.error("Folder insert error:", folderError.message);
       return res.status(500).json({ error: folderError.message });
     }
 
