@@ -1294,7 +1294,7 @@ async function getAllTrashItems(parentId, userId) {
   // Fetch folders under the current parentId
   const { data: folders, error: foldersError } = await supabase
     .from('folders')
-    .select('id, name, parent_id, updated_at, created_at, deleted_at')
+    .select('id, name, parent_id, updated_at, created_at') // Use updated_at instead of deleted_at
     .eq('owner_id', userId)
     .eq('is_deleted', true)
     .eq('parent_id', parentId || null);
@@ -1304,7 +1304,7 @@ async function getAllTrashItems(parentId, userId) {
   // Fetch files under the current parentId
   const { data: files, error: filesError } = await supabase
     .from('files')
-    .select('id, name, folder_id, updated_at, created_at, deleted_at')
+    .select('id, name, folder_id, updated_at, created_at') // Use updated_at instead of deleted_at
     .eq('owner_id', userId)
     .eq('is_deleted', true)
     .eq('folder_id', parentId || null);
