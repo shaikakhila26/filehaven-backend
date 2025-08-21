@@ -137,6 +137,7 @@ if (!folder_id || folder_id === "null" || folder_id === "root") {
 
         const safeFolderId = (folder_id === "null" || folder_id === "root") ? null : folder_id;
 
+console.log("DEBUG: About to use folder_id for DB operation:", folder_id, typeof folder_id);
 
 // Prepare payload
 const payload = {
@@ -1380,6 +1381,8 @@ catch(err){
 
 async function cascadeRestoreFolder(folderId) {
   await supabase.from('folders').update({ is_deleted: false }).eq('id', folderId);
+
+  console.log("DEBUG: About to use folder_id for DB operation:", folderId, typeof folderId);
 
   // Restore files in this folder
   await supabase.from('files').update({ is_deleted: false }).eq('folder_id', folderId);

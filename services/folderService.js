@@ -1,6 +1,11 @@
 import {supabase} from '../supabaseClient.js';
 
 export async function findOrCreateFolder(ownerId, folderName, parentId = null) {
+
+    // Defensive: convert "null" or "root" strings to actual null
+  if (!parentId || parentId === "null" || parentId === "root") {
+    parentId = null;
+  }
   // Try to find existing folder
   let { data: folder, error } = await supabase
     .from('folders')
