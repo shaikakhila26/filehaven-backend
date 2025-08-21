@@ -55,13 +55,15 @@ if (!folder_id || folder_id === "null" || folder_id === "root") {
     // Generate checksum
     const checksum = crypto.createHash('md5').update(file.buffer).digest('hex');
 
+    console.log('Using folder_id for existingFile query:', folder_id);
+
     // Check if a file with the same name already exists (after upload!)
     const { data: existingFile , error : exFileErr  } = await supabase
       .from('files')
       .select('*')
       .eq('owner_id', user.id)
       .eq('name', file.originalname)
-      .eq('folder_id', folder_id)
+      .eq('folder_id', (folder_id === "null" || folder_id === "root") ? null : folder_id)
       .eq('is_deleted', false)
       .limit(1)
       .single();
@@ -133,6 +135,9 @@ if (!folder_id || folder_id === "null" || folder_id === "root") {
 
        */
 
+        const safeFolderId = (folder_id === "null" || folder_id === "root") ? null : folder_id;
+
+
 // Prepare payload
 const payload = {
   id:fileId,
@@ -141,7 +146,7 @@ const payload = {
   size_bytes: file.size,
   storage_key: storageKey,
   owner_id: user.id,
-  folder_id: folder_id,
+  folder_id: safeFolderId,
   checksum,
   is_deleted: false,
   created_at: new Date().toISOString(),
