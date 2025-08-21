@@ -1294,20 +1294,20 @@ async function getAllTrashItems(parentId, userId) {
   // Fetch folders under the current parentId
   const { data: folders, error: foldersError } = await supabase
     .from('folders')
-    .select('id, name, parent_id, updated_at, created_at') // Use updated_at instead of deleted_at
+    .select('id, name, parent_id, updated_at, created_at')
     .eq('owner_id', userId)
     .eq('is_deleted', true)
-    .eq('parent_id', parentId || null);
+    .eq('parent_id', parentId); // Remove || null, handle null explicitly
 
   if (foldersError) throw foldersError;
 
   // Fetch files under the current parentId
   const { data: files, error: filesError } = await supabase
     .from('files')
-    .select('id, name, folder_id, updated_at, created_at') // Use updated_at instead of deleted_at
+    .select('id, name, folder_id, updated_at, created_at')
     .eq('owner_id', userId)
     .eq('is_deleted', true)
-    .eq('folder_id', parentId || null);
+    .eq('folder_id', parentId); // Remove || null, handle null explicitly
 
   if (filesError) throw filesError;
 
@@ -1316,9 +1316,11 @@ async function getAllTrashItems(parentId, userId) {
   items.push(...(folders || []).map(f => ({ ...f, type: 'folder' })));
 
   // Recursively fetch items from subfolders
-  for (const folder of folders || []) {
-    const subItems = await getAllTrashItems(folder.id, userId);
-    items.push(...subItems);
+  if (parentId) { // Only recurse if parentId is a valid UUID
+    for (const folder of folders || []) {
+      const subItems = await getAllTrashItems(folder.id, userId);
+      items.push(...subItems);
+    }
   }
 
   return items;
@@ -1329,8 +1331,15 @@ router.get('/trash', authMiddleware, async (req, res) => {
     const user = req.user;
     let parentId = req.query.parentId;
 
-    if (!parentId || parentId === 'null') {
+    // Explicitly handle parentId as null or a valid UUID
+    if (!parentId || parentId === 'null' || parentId === '') {
       parentId = null;
+    } else {
+      // Validate that parentId is a UUID (basic check)
+      const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+      if (!uuidRegex.test(parentId)) {
+        return res.status(400).json({ error: 'Invalid parentId format' });
+      }
     }
 
     // Fetch all trash items recursively
