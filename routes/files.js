@@ -59,8 +59,8 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
       .eq('folder_id', folder_id)
       .eq('is_deleted', false)
       .limit(1)
-      .single()
-      .catch(()=> ({ data:null}));
+      .single();
+      
 
     let fileId = uuidv4();
 
