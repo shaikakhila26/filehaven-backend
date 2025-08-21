@@ -61,7 +61,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
       .limit(1)
       .single();
 
-    let fileId;
+    let fileId = uuidv4();
 
     if (existingFile && existingFile.id) {
       fileId = existingFile.id;
@@ -76,7 +76,8 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
         .eq('file_id', fileId)
         .order('version_number', { ascending: false })
         .limit(1)
-        .single();
+        .single()
+        .catch(()=> ({data :null }));
 
       const nextVersion = latestVersion ? latestVersion.version_number + 1 : 1;
 
@@ -128,6 +129,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
 
 // Prepare payload
 const payload = {
+  id:fileId,
   name: file.originalname,
   mime_type: file.mimetype,
   size_bytes: file.size,
@@ -142,28 +144,27 @@ const payload = {
 console.log('Inserting file payload:', payload);
 
 // Insert into Supabase
-const { data: insertedFileArray, error: insertErr } = await supabase
+const {  error: insertErr } = await supabase
   .from('files')
-  .insert([payload], { returning: 'representation' }); // remove .single() temporarily
+  .insert([payload], { returning: 'minimal' }); // remove .single() temporarily
 
 console.log('Insert result:', { insertedFileArray, insertErr });
 
-// Get the first inserted row
-const insertedFile = insertedFileArray ? insertedFileArray[0] : null;
 
-      if (insertErr || !insertedFile || !insertedFile.id) 
+
+      if (insertErr ) 
     
         {
-        console.error('Insert file error:', insertErr, insertedFile);
+        console.error('Insert file error:', insertErr);
         return res.status(500).json({ error: 'Failed to insert new file record' });
       }
-      fileId = insertedFile.id;
+      //fileId = insertedFile.id;
 
       // Insert initial version #1 with its own unique key!
       const storageKeyForVersion = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
 
       const {error :verErr} = await supabase.from('file_versions').insert([{
-        file_id: fileId,
+        file_id: fieldId,
         storage_key: storageKeyForVersion,
         version_number: 1,
       }]);
