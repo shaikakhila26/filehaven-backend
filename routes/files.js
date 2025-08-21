@@ -1341,10 +1341,13 @@ async function getFolderBreadcrumbs(folderId) {
 
 router.get('/trash', authMiddleware, async (req, res) => {
   try {
-    const user = req.user;
-    console.log(`Processing /trash request for user ${user.id}, parentId: ${req.query.parentId}`);
-    let parentId = req.query.parentId;
+    console.log(`[trashRoute] Request received for user ${req.user?.id || 'unknown'}, parentId: ${req.query.parentId}`);
+    if (!req.user) {
+      console.error('[trashRoute] No user found in request');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
 
+    let parentId = req.query.parentId;
     if (!parentId || parentId === 'null' || parentId === '') {
       parentId = null;
     } else {
@@ -1354,19 +1357,18 @@ router.get('/trash', authMiddleware, async (req, res) => {
       }
     }
 
-    // Fetch all trash items recursively
-    const allItems = await getAllTrashItems(parentId, user.id);
+    console.log(`[trashRoute] Starting trash fetch for parentId: ${parentId}, userId: ${req.user.id}`);
+    const allItems = await getAllTrashItems(parentId, req.user.id);
 
-    // Separate files and folders for the response
     const files = allItems.filter(item => item.type === 'file');
     const folders = allItems.filter(item => item.type === 'folder');
 
-    // Generate breadcrumbs
     let breadcrumbs = [{ id: 'root', name: 'Trash' }];
     if (parentId) {
       breadcrumbs = await getFolderBreadcrumbs(parentId);
     }
 
+    console.log(`[trashRoute] Successfully fetched: files=${files.length}, folders=${folders.length}, breadcrumbs=${breadcrumbs.length}`);
     res.json({
       success: true,
       files,
@@ -1374,7 +1376,11 @@ router.get('/trash', authMiddleware, async (req, res) => {
       breadcrumbs,
     });
   } catch (err) {
-    console.error('Trash fetch error:', err.message, err.details);
+    console.error('[trashRoute] Error occurred:', {
+      message: err.message,
+      stack: err.stack,
+      details: err.details,
+    });
     res.status(500).json({ error: 'Failed to fetch trash contents', details: err.message });
   }
 });
