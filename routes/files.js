@@ -17,17 +17,12 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
   try {
     const file = req.file;
     if (!file) return res.status(400).json({ error: 'No file uploaded' });
-    let folder_id = req.body.folder_id ;
-
-    // Fix: treat "null" or "root" string as actual null
+   
+let { folder_id } = req.body;
 if (!folder_id || folder_id === "null" || folder_id === "root") {
   folder_id = null;
 }
-else {
-  // Optional: validate UUID format
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(folder_id)) folder_id = null;
-}
+// Now you can safely use `folder_id` directly in your database queries
 
     const user = req.user;
     if (!user?.id) {
@@ -281,13 +276,12 @@ router.post('/folders', authMiddleware, async (req, res) => {
     const { name, parent_id } = req.body;
 
     // Fix: treat "null" or "root" string as actual null
-   /* if (!parent_id || parent_id === "null" || parent_id === "root") {
+    if (!parent_id || parent_id === "null" || parent_id === "root") {
       parent_id = null;
-    }*/
+    }
 
-    if (!folder_id || folder_id === "null" || folder_id === "root") {
-  folder_id = null;
-}
+  
+
 
 
     // Create folder
