@@ -23,6 +23,11 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
 if (!folder_id || folder_id === "null" || folder_id === "root") {
   folder_id = null;
 }
+else {
+  // Optional: validate UUID format
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(folder_id)) folder_id = null;
+}
 
     const user = req.user;
     if (!user?.id) {
