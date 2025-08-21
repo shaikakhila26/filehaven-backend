@@ -39,7 +39,11 @@ export async function findOrCreateFolder(ownerId, folderName, parentId = null) {
       .select('id')
       .single();
 
-    if (insertError) throw insertError;
+    if (insertError){
+        console.error("findOrCreateFolder insert error:", insertError.message);
+    throw insertError;
+    }
+        
     return data.id;
   }
 }

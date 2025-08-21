@@ -25,6 +25,7 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
 
     // Sanitize folder_id from frontend
     let { folder_id } = req.body;
+    console.log("Initial folder_id from req.body:", folder_id);
     if (!folder_id || folder_id === "null" || folder_id === "root") {
       folder_id = null;
     }
@@ -38,7 +39,13 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
       const parts = relativePath.split('/').filter(Boolean);
       parts.pop(); // Remove file name
       for (const folderName of parts) {
-        folder_id = await findOrCreateFolder(user.id, folderName, folder_id);
+
+       const newFolderId = await findOrCreateFolder(user.id, folderName, folder_id);
+        console.log("Folder created with id:", newFolderId); // Debug log
+        if (!newFolderId) {
+          throw new Error("Failed to create or find folder");
+        }
+        folder_id = newFolderId; // Update folder_id with valid UUID
       }
     }
 
@@ -53,6 +60,10 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
 
     const checksum = crypto.createHash('md5').update(file.buffer).digest('hex');
 
+// Validate finalFolderId before insert
+    if (finalFolderId !== null && typeof finalFolderId !== 'string') {
+      throw new Error("Invalid folder_id format");
+    }
     // Use safeFolderId for all DB queries
     const payload = {
       id: uuidv4(),
@@ -72,7 +83,10 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
       .from('files')
       .insert([payload], { returning: 'minimal' });
 
-    if (insertErr) throw insertErr;
+    if (insertErr) {
+      console.error("File insert error:", insertErr.message);
+      throw insertErr;
+    }
 
     // Insert notification
     await supabase.from("notifications").insert({
