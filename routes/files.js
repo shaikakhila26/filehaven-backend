@@ -1264,78 +1264,90 @@ router.patch('/folders/:id/star', authMiddleware, async (req, res) => {
 
 // In your files.js (or new trash.js) router
 // Helper to get full breadcrumb path for a folder recursively
+async function getAllTrashItems(parentId, userId) {
+  const items = [];
+
+  try {
+    console.log(`Fetching trash items for parentId: ${parentId}, userId: ${userId}`);
+    // Fetch folders under the current parentId
+    const { data: folders, error: foldersError } = await supabase
+      .from('folders')
+      .select('id, name, parent_id, updated_at, created_at')
+      .eq('owner_id', userId)
+      .eq('is_deleted', true)
+      .eq('parent_id', parentId);
+
+    if (foldersError) {
+      console.error('Folders query error:', foldersError.message, foldersError.details);
+      throw foldersError;
+    }
+    console.log(`Fetched ${folders?.length || 0} folders`);
+
+    // Fetch files under the current parentId
+    const { data: files, error: filesError } = await supabase
+      .from('files')
+      .select('id, name, folder_id, updated_at, created_at')
+      .eq('owner_id', userId)
+      .eq('is_deleted', true)
+      .eq('folder_id', parentId);
+
+    if (filesError) {
+      console.error('Files query error:', filesError.message, filesError.details);
+      throw filesError;
+    }
+    console.log(`Fetched ${files?.length || 0} files`);
+
+    // Add current level files and folders
+    items.push(...(files || []).map(f => ({ ...f, type: 'file' })));
+    items.push(...(folders || []).map(f => ({ ...f, type: 'folder' })));
+
+    // Recursively fetch items from subfolders
+    if (parentId) {
+      for (const folder of folders || []) {
+        console.log(`Recursing into folder ${folder.id}`);
+        const subItems = await getAllTrashItems(folder.id, userId);
+        items.push(...subItems);
+      }
+    }
+
+    return items;
+  } catch (err) {
+    console.error('Error in getAllTrashItems:', err.message, err.details);
+    throw err;
+  }
+}
+
 async function getFolderBreadcrumbs(folderId) {
   const breadcrumbs = [];
   let currentId = folderId;
   while (currentId) {
-     console.log("Fetching folder:", currentId);
+    console.log(`Fetching breadcrumb for folder: ${currentId}`);
     const { data: folder, error } = await supabase
       .from('folders')
       .select('id, name, parent_id')
       .eq('id', currentId)
       .single();
+
     if (error || !folder) {
-       console.error("Breadcrumb fetch error or folder not found", error)
+      console.error('Breadcrumb fetch error or folder not found:', error?.message, error?.details);
       break;
     }
     breadcrumbs.unshift({ id: folder.id, name: folder.name });
     currentId = folder.parent_id;
   }
-  // Prepend root breadcrumb
   breadcrumbs.unshift({ id: 'root', name: 'Trash' });
   return breadcrumbs;
-}
-
-
-
-async function getAllTrashItems(parentId, userId) {
-  const items = [];
-
-  // Fetch folders under the current parentId
-  const { data: folders, error: foldersError } = await supabase
-    .from('folders')
-    .select('id, name, parent_id, updated_at, created_at')
-    .eq('owner_id', userId)
-    .eq('is_deleted', true)
-    .eq('parent_id', parentId); // Remove || null, handle null explicitly
-
-  if (foldersError) throw foldersError;
-
-  // Fetch files under the current parentId
-  const { data: files, error: filesError } = await supabase
-    .from('files')
-    .select('id, name, folder_id, updated_at, created_at')
-    .eq('owner_id', userId)
-    .eq('is_deleted', true)
-    .eq('folder_id', parentId); // Remove || null, handle null explicitly
-
-  if (filesError) throw filesError;
-
-  // Add current level files and folders
-  items.push(...(files || []).map(f => ({ ...f, type: 'file' })));
-  items.push(...(folders || []).map(f => ({ ...f, type: 'folder' })));
-
-  // Recursively fetch items from subfolders
-  if (parentId) { // Only recurse if parentId is a valid UUID
-    for (const folder of folders || []) {
-      const subItems = await getAllTrashItems(folder.id, userId);
-      items.push(...subItems);
-    }
-  }
-
-  return items;
 }
 
 router.get('/trash', authMiddleware, async (req, res) => {
   try {
     const user = req.user;
+    console.log(`Processing /trash request for user ${user.id}, parentId: ${req.query.parentId}`);
     let parentId = req.query.parentId;
 
-    // Explicitly handle parentId as null or a valid UUID
     if (!parentId || parentId === 'null' || parentId === '') {
       parentId = null;
     } else {
-      // Validate that parentId is a UUID (basic check)
       const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
       if (!uuidRegex.test(parentId)) {
         return res.status(400).json({ error: 'Invalid parentId format' });
@@ -1362,8 +1374,8 @@ router.get('/trash', authMiddleware, async (req, res) => {
       breadcrumbs,
     });
   } catch (err) {
-    console.error('Trash fetch error:', err);
-    res.status(500).json({ error: 'Failed to fetch trash contents' });
+    console.error('Trash fetch error:', err.message, err.details);
+    res.status(500).json({ error: 'Failed to fetch trash contents', details: err.message });
   }
 });
 /*
