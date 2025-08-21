@@ -10,18 +10,17 @@ export async function findOrCreateFolder(ownerId, folderName, parentId = null) {
   }
   console.log("Processed parentId:", parentId, "type:", typeof parentId);
 
-  // Try to find existing folder
-  let { data: folder, error } = await supabase
-    .from('folders')
-    .select('id')
-    .eq('owner_id', ownerId)
-    .eq('name', folderName)
-    .eq('parent_id', parentId)
-    .eq('is_deleted', false)
-    .limit(1)
-    .single();
+  // Dynamically build the query based on parentId
+  let query = supabase.from('folders').select('id').eq('owner_id', ownerId).eq('name', folderName).eq('is_deleted', false).limit(1);
+  if (parentId === null) {
+    query = query.is('parent_id', null); // Use .is() for null comparison
+  } else {
+    query = query.eq('parent_id', parentId); // Use .eq() for non-null UUIDs
+  }
 
-  if (error && error.code !== 'PGRST116') { // ignore no rows error
+  let { data: folder, error } = await query.single();
+
+  if (error && error.code !== 'PGRST116') { // Ignore no rows error
     console.error("Find folder error:", error.message);
     throw error;
   }
