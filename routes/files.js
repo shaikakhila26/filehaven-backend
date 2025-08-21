@@ -142,12 +142,14 @@ const payload = {
 console.log('Inserting file payload:', payload);
 
 // Insert into Supabase
-const { data: insertedFile, error: insertErr } = await supabase
+const { data: insertedFileArray, error: insertErr } = await supabase
   .from('files')
   .insert([payload], { returning: 'representation' }); // remove .single() temporarily
 
-console.log('Insert result:', { insertedFile, insertErr });
+console.log('Insert result:', { insertedFileArray, insertErr });
 
+// Get the first inserted row
+const insertedFile = insertedFileArray ? insertedFileArray[0] : null;
 
       if (insertErr || !insertedFile || !insertedFile.id) 
     
