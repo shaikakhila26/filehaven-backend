@@ -281,9 +281,9 @@ router.post('/folders', authMiddleware, async (req, res) => {
     const { name, parent_id } = req.body;
 
     // Fix: treat "null" or "root" string as actual null
-    if (!parent_id || parent_id === "null" || parent_id === "root") {
+   /* if (!parent_id || parent_id === "null" || parent_id === "root") {
       parent_id = null;
-    }
+    }*/
 
     if (!folder_id || folder_id === "null" || folder_id === "root") {
   folder_id = null;
