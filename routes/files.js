@@ -39,9 +39,9 @@ console.log("Sanitized folder_id:", folder_id); // Debug log
    console.log("finalFolderId before relativePath:", finalFolderId); // Debug log
 
     // Handle relativePath folder creation
-    const relativePath = req.body.relativePath; 
-    if (relativePath) {
-      const parts = relativePath.split('/').filter(Boolean);
+    let tempFolderId = folder_id;
+    if (req.body.relativePath) {
+      const parts = req.body.relativePath.split('/').filter(Boolean);
       parts.pop(); // Remove file name
       for (const folderName of parts) {
 
@@ -52,8 +52,11 @@ console.log("Sanitized folder_id:", folder_id); // Debug log
         }
         folder_id = newFolderId; // Update folder_id with valid UUID
       }
+      // Optionally use tempFolderId as the final folder_id if subfolders are created
+      if (tempFolderId) finalFolderId = tempFolderId; // Only update if a new folder is created
     }
    console.log("finalFolderId after relativePath:", finalFolderId); // Debug log 
+   console.log("tempFolderId after loop:", tempFolderId);
 
     const storageKey = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
 
