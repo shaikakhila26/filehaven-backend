@@ -1,11 +1,15 @@
-import {supabase} from '../supabaseClient.js';
+import { supabase } from '../supabaseClient.js';
 
 export async function findOrCreateFolder(ownerId, folderName, parentId = null) {
-
-    // Defensive: convert "null" or "root" strings to actual null
-  if (!parentId || parentId === "null" || parentId === "root") {
+  // Defensive: convert "null" or "root" strings to actual null with validation
+  console.log("findOrCreateFolder called with parentId:", parentId, "type:", typeof parentId);
+  if (parentId === undefined || parentId === "null" || parentId === "root" || parentId === "") {
     parentId = null;
+  } else if (typeof parentId === "string") {
+    parentId = parentId.trim();
   }
+  console.log("Processed parentId:", parentId, "type:", typeof parentId);
+
   // Try to find existing folder
   let { data: folder, error } = await supabase
     .from('folders')
@@ -18,20 +22,23 @@ export async function findOrCreateFolder(ownerId, folderName, parentId = null) {
     .single();
 
   if (error && error.code !== 'PGRST116') { // ignore no rows error
+    console.error("Find folder error:", error.message);
     throw error;
   }
 
   if (folder) {
+    console.log("Found existing folder id:", folder.id);
     return folder.id;
   } else {
-    // Create folder
+    // Create folder with explicit null check
+    console.log("Inserting new folder with parentId:", parentId);
     const { data, error: insertError } = await supabase
       .from('folders')
       .insert([
         {
           owner_id: ownerId,
           name: folderName,
-          parent_id: parentId,
+          parent_id: parentId === null ? null : parentId, // Explicit null handling
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         },
@@ -39,13 +46,11 @@ export async function findOrCreateFolder(ownerId, folderName, parentId = null) {
       .select('id')
       .single();
 
-    if (insertError){
-        console.error("findOrCreateFolder insert error:", insertError.message);
-    throw insertError;
+    if (insertError) {
+      console.error("Insert folder error:", insertError.message);
+      throw insertError;
     }
-        
+    console.log("Inserted folder id:", data.id);
     return data.id;
   }
 }
-
-
