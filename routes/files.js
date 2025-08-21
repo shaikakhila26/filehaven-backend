@@ -36,12 +36,12 @@ router.post('/upload', authMiddleware, upload.single('file'), async (req, res) =
     }
 
     // Generate unique storage key for the physical upload (once)
-    const storageKeyForUpload = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
+    const storageKey = `uploads/${user.id}/${Date.now()}_${uuidv4()}_${file.originalname}`;
 
     // Upload to Supabase Storage bucket
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('filehaven-files')
-      .upload(storageKeyForUpload, file.buffer, {
+      .upload(storageKey, file.buffer, {
         contentType: file.mimetype,
       });
 
@@ -134,7 +134,7 @@ const payload = {
   name: file.originalname,
   mime_type: file.mimetype,
   size_bytes: file.size,
-  storage_key: storageKeyForMainFile,
+  storage_key: storageKey,
   owner_id: user.id,
   folder_id: folder_id,
   checksum,
