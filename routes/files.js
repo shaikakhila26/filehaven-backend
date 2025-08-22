@@ -700,6 +700,7 @@ router.post('/files/:id/permissions', authMiddleware, async (req, res) => {
 
 
 // GET /s/:token (No auth required for public share)
+/*
 
 router.get("/s/:token", async (req, res) => {
   const { token } = req.params;
@@ -734,6 +735,62 @@ console.log("🔍 Looking for file_id:", link.file_id);
   // 3. Get signed URL
   const { data: signed, error: signedErr } = await supabase.storage
     .from("filehaven-files")
+    .createSignedUrl(file.storage_key, 60 * 60); // valid 1 hr
+
+  if (signedErr) {
+    console.error("Signed URL error:", signedErr);
+    return res.status(500).json({ error: "Could not generate signed URL." });
+  }
+
+  // 4. Return response
+  return res.json({
+    file: {
+      name: file.name,
+      size: file.size_bytes,
+      created_at: file.created_at,
+    },
+    permission: link.permission_type,
+    expires_at: link.expires_at,
+    url: signed.signedUrl,
+  });
+});
+*/
+
+
+
+router.get("/s/:token", async (req, res) => {
+  const { token } = req.params;
+
+  // 1. Get link info
+  const { data: link, error: linkErr } = await supabase
+    .from("share_links")
+    .select("file_id, expires_at, is_active, permission_type")
+    .eq("link_token", token)
+    .single();
+
+  if (linkErr || !link || !link.is_active || (link.expires_at && new Date() > new Date(link.expires_at))) {
+    return res.status(404).json({ error: "Link expired or not found." });
+  }
+
+console.log("🔍 Looking for file_id:", link.file_id);
+
+  // 2. Get file details
+  const { data: file, error: fileErr } = await supabase
+    .from("files")
+    .select("id, name, size_bytes, created_at, storage_key")
+    .eq("id", link.file_id)
+    .single();
+
+
+    console.log("🔍 File query result:", file, fileErr);
+
+  if (fileErr || !file) {
+    return res.status(404).json({ error: "File not found." });
+  }
+
+  // 3. Get signed URL
+  const { data: signed, error: signedErr } = await supabase.storage
+    .from("files")
     .createSignedUrl(file.storage_key, 60 * 60); // valid 1 hr
 
   if (signedErr) {
@@ -806,7 +863,7 @@ router.get('/files/:id/share-links', authMiddleware, async (req, res) => {
 
 
 
-
+/*
 router.get('/files/:id/download', authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
@@ -857,7 +914,61 @@ console.log('File owner:', fileData.owner_id);
     console.error('Download error:', err);
     res.status(500).json({ error: 'Failed to generate signed URL' });
   }
+});*/
+
+
+router.get('/files/:id/download', authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+
+    // Fetch file metadata to verify ownership
+    const { data: fileData, error: fetchError } = await supabase
+      .from('files')
+      .select('storage_key, owner_id')
+      .eq('id', id)
+      .single();
+
+    if (fetchError || !fileData) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+       // 1. File owner always allowed
+    if (fileData.owner_id !== user.id) {
+      console.log('User ID:', user.id);
+console.log('File owner:', fileData.owner_id);
+      // 2. ELSE: Check permissions table (shared access)
+      const { data: perm, error: permError } = await supabase
+        .from('permissions')
+        .select('permission_type')
+        .eq('file_id', id)
+        .eq('shared_with', user.id)
+        .maybeSingle();
+        console.log('Permission:', perm);
+
+      if (permError || !perm) {
+        return res.status(403).json({ error: 'Unauthorized to access this file' });
+      }
+      // Optionally: only allow download for 'view' or higher role
+      // if (perm.permission_type !== 'view' && perm.permission_type !== 'edit') {
+      //   return res.status(403).json({ error: 'Insufficient permissions' });
+      // }
+    }
+
+    // The user is either the owner or is listed in permissions table—allow download below!
+    const { data, error: urlError } = await supabase.storage
+      .from('files')
+      .createSignedUrl(fileData.storage_key, 900);
+
+    if (urlError) throw urlError;
+
+    res.json({ url: data.signedUrl });
+  } catch (err) {
+    console.error('Download error:', err);
+    res.status(500).json({ error: 'Failed to generate signed URL' });
+  }
 });
+
 
 
 
