@@ -790,7 +790,7 @@ console.log("🔍 Looking for file_id:", link.file_id);
 
   // 3. Get signed URL
   const { data: signed, error: signedErr } = await supabase.storage
-    .from("files")
+    .from("filehaven-files")
     .createSignedUrl(file.storage_key, 60 * 60); // valid 1 hr
 
   if (signedErr) {
@@ -957,7 +957,7 @@ console.log('File owner:', fileData.owner_id);
 
     // The user is either the owner or is listed in permissions table—allow download below!
     const { data, error: urlError } = await supabase.storage
-      .from('files')
+      .from('filehaven-files')
       .createSignedUrl(fileData.storage_key, 900);
 
     if (urlError) throw urlError;
